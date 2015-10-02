@@ -1,0 +1,13 @@
+# properties p1
+NumProcesses=5
+port0=1110
+host0=127.0.0.1
+port1=1111
+host1=127.0.0.1
+port2=1112
+host2=127.0.0.1
+port3=1113
+host3=127.0.0.1
+port4=1114
+host4=127.0.0.1
+procNum=1
