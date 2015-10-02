@@ -1,13 +1,13 @@
 # properties p2
 NumProcesses=5
-port0=1110
+port0=5000
 host0=127.0.0.1
-port1=1111
+port1=5001
 host1=127.0.0.1
-port2=1112
+port2=5002
 host2=127.0.0.1
-port3=1113
+port3=5003
 host3=127.0.0.1
-port4=1114
+port4=5004
 host4=127.0.0.1
 procNum=2
