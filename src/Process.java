@@ -15,6 +15,7 @@ public class Process extends Thread {
 	private Boolean isTransactionOn;
 	private Boolean alive;
 	private Integer stage; //Tells which stage of the transaction it is on currently
+	private Integer transacting; // tells if not in a transaction (-1), transaction-in-progress (0)
 	private Boolean[] livingProcs;
 	private HashMap<String, String> playlist;
 	private ArrayList<Integer> sinceLastMessage;
@@ -35,6 +36,7 @@ public class Process extends Thread {
 		for(int i = 0; i < 5; i++){
 			livingProcs[i] = true;
 		}
+		this.transacting = -1;
 	}
 	
 	public void run() {
@@ -117,6 +119,13 @@ public class Process extends Thread {
 		stage = 1;
 		amCoord = true;
 		broadcast(buildMessage("VOTE_REQ:" + command));
+		
+		// the controller knows of the state of the transaction 
+		// from the coordinator's state...
+		//
+		// once the coordinator indicates TERMINATED, 
+		// the controller can send the next instruction
+		this.transacting = 1;
 	}
 	
 	private void sendPreCommit() {
@@ -128,6 +137,8 @@ public class Process extends Thread {
 		stage = 0;
 		amCoord = false;
 		broadcast(buildMessage("COMMIT"));
+		// TODO: ensure that everyone receives commit before setting state to non-transaction
+		this.transacting = -1;
 	}
 	
 	private void sendAbort() {
@@ -160,6 +171,10 @@ public class Process extends Thread {
 		System.out.println(this.id + ":COMMITTING");
 		command = "";
 		isTransactionOn = false;
+	}
+	
+	public int getTransactionState () {
+		return transacting;
 	}
 	
 	private void keepalive(String message) {
