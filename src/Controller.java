@@ -1,4 +1,6 @@
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ public class Controller {
 	ArrayList<Process> idToProc; // i-th position corresponds to i-th process
 	Process currLeader;
 	Process lastKilled;
+	ArrayList<String> instructions;
 	
 	public Controller() throws FileNotFoundException, IOException {
 		idToProc = new ArrayList<Process>();
@@ -22,17 +25,48 @@ public class Controller {
 			Config config = new Config("properties_p" + i + ".txt");
 			idToProc.add(new Process(i, config));
 		}
+		
+		// TODO: put this in the constructor?
+		String instructionsPath = "";
+		// filepath assumes the following newline delimited file of commands:
+		// [id]:[proposed command 1]
+		// [id]:[proposed command 2]
+		// ...
+		// [id]:[proposed command n]
+		//
+		// where n is the number of commands
+		BufferedReader reader = new BufferedReader(new FileReader(instructionsPath));
+		String cmd = null;
+		while ((cmd = reader.readLine()) != null) {
+			this.instructions.add(cmd);
+		}
 	}
 	
-	public void initiateAdd(String songName, String URL) {
+	public void executeInstructions() {
+		for (String instr : instructions) {
+			String[] parsedInstr = instr.split(":");
+			Integer process = Integer.parseInt(parsedInstr[0]);
+			String command = parsedInstr[1];
+			
+			Process workingProc = this.idToProc.get(process);
+			
+			workingProc.sendVoteReq(command);
+			// Not sure if this is the correct approach
+			// wait until the transaction finishes before going 
+			// to the next one
+			while(workingProc.getTransactionState() == 0);
+		}
+	}
+	
+	public void initiateAdd(String songName, String URL, Process p) {
 		
 	}
 	
-	public void initiateRemove(String songName) {
+	public void initiateRemove(String songName, Process p) {
 		
 	}
 	
-	public void initiateEdit(String songName, String URL) {
+	public void initiateEdit(String songName, String URL, Process p) {
 		
 	}
 	
