@@ -90,7 +90,8 @@ public class Controller {
 		for(Process p : mainController.idToProc) {
 			p.start();
 		}
-		Thread.sleep(5000);
+		mainController.idToProc.get(0).sendVoteReq("COMMAND");
+		Thread.sleep(10 * 1000);
 		for(Process p: mainController.idToProc) {
 			p.shutdown();
 		}

@@ -19,6 +19,7 @@ public class Process extends Thread {
 	private HashMap<String, String> playlist;
 	private ArrayList<Integer> sinceLastMessage;
 	private Long time;
+	private String command;
 	
 	public Process(Integer id, Config configFile) {
 		this.id = id;
@@ -43,10 +44,11 @@ public class Process extends Thread {
 			messages = network.getReceivedMsgs();
 			for(String message : messages) {
 				if(message.contains("VOTE_REQ")) {
-					vote();
+					isTransactionOn = true;
+					vote(message);
 				}
 				else if(message.contains("PRECOMMIT")) {
-					preCommit();
+					preCommit(message);
 				}
 				else if(message.contains("COMMIT")) {
 					commit();
@@ -55,7 +57,7 @@ public class Process extends Thread {
 					abort();
 				}
 				else if(message.contains("ACK")) {
-					 numYes++;
+					numYes++;
 				}
 				else if(message.contains("YES")) {
 					numYes++;
@@ -67,9 +69,10 @@ public class Process extends Thread {
 					keepalive(message);
 				}
 			}
-			if(amCoord && numYes == 4) {
+			if(amCoord && numYes == 5) {
 				//Waiting for votes
 				if(stage == 1) {
+					//TODO: need to vote still
 					sendPreCommit();
 					numYes = 0;
 				}
@@ -109,44 +112,58 @@ public class Process extends Thread {
 		return Integer.parseInt(message.split(":")[0]);
 	}
 	
-	private void sendVoteReq() {
-		
+	public void sendVoteReq(String command) {
+		System.out.println(command);
+		stage = 1;
+		amCoord = true;
+		broadcast(buildMessage("VOTE_REQ:" + command));
 	}
 	
 	private void sendPreCommit() {
-		
+		stage = 2;
+		broadcast(buildMessage("PRECOMMIT"));
 	}
 	
 	private void sendCommit() {
-		
+		stage = 0;
+		amCoord = false;
+		broadcast(buildMessage("COMMIT"));
 	}
 	
 	private void sendAbort() {
-		
+		stage = 0;
+		amCoord = false;
+		broadcast(buildMessage("ABORT"));
 	}
 	
-	private Integer vote() {
-		return 0;
+	private void vote(String message) {
+		System.out.println(this.id + ":VOTING YES");
+		Integer sender = getSender(message);
+		command = message.split(":")[2];
+		network.sendMsg(sender, buildMessage("YES"));
 	}
 	
 	private void abort() {
-		
+		System.out.println(this.id + "ABORTING");
+		command = "";
+		isTransactionOn = false;
 	}
 	
-	private void preCommit() {
-		
+	private void preCommit(String message) {
+		System.out.println(this.id + ":ACK");
+		Integer sender = getSender(message);
+		network.sendMsg(sender, buildMessage("ACK"));
 	}
 	
 	private void commit() {
-		
-	}
-	
-	private void ack() {
-		
+		//EXECUTE COMMAND
+		System.out.println(this.id + ":COMMITTING");
+		command = "";
+		isTransactionOn = false;
 	}
 	
 	private void keepalive(String message) {
-		System.out.println(message);
+		//System.out.println(message);
 		int sender = getSender(message);
 		sinceLastMessage.set(sender,0);
 		livingProcs[sender] = true;
