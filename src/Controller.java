@@ -19,15 +19,16 @@ public class Controller {
 	Process lastKilled;
 	ArrayList<String> instructions;
 	
-	public Controller() throws FileNotFoundException, IOException {
+	public Controller(String instructionsPath) throws FileNotFoundException, IOException {
 		idToProc = new ArrayList<Process>();
 		for(int i = 0; i < 5; i++) {
 			Config config = new Config("properties_p" + i + ".txt");
 			idToProc.add(new Process(i, config));
 		}
 		
-		// TODO: put this in the constructor?
-		String instructionsPath = "";
+		// initialize arraylist of instructions to be executed
+		this.instructions = new ArrayList<String>();
+		
 		// filepath assumes the following newline delimited file of commands:
 		// [id]:[proposed command 1]
 		// [id]:[proposed command 2]
@@ -54,7 +55,7 @@ public class Controller {
 			// Not sure if this is the correct approach
 			// wait until the transaction finishes before going 
 			// to the next one
-			while(workingProc.getTransactionState() == 0);
+			while (workingProc.getTransactionState() == 1);
 		}
 	}
 	
@@ -120,12 +121,13 @@ public class Controller {
 	}
 	
 	public static void main(String[] args) throws FileNotFoundException, IOException, InterruptedException {
-		Controller mainController = new Controller();
+		Controller mainController = new Controller("instructions_test.txt");
 		for(Process p : mainController.idToProc) {
 			p.start();
 		}
-		mainController.idToProc.get(0).sendVoteReq("COMMAND");
-		Thread.sleep(10 * 1000);
+//		mainController.idToProc.get(0).sendVoteReq("COMMAND");
+		mainController.executeInstructions();
+		Thread.sleep(100 * 1000);
 		for(Process p: mainController.idToProc) {
 			p.shutdown();
 		}

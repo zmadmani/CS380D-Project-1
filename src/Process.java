@@ -2,6 +2,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Process
@@ -15,12 +17,15 @@ public class Process extends Thread {
 	private Boolean isTransactionOn;
 	private Boolean alive;
 	private Integer stage; //Tells which stage of the transaction it is on currently
-	private Integer transacting; // tells if not in a transaction (-1), transaction-in-progress (0)
+	private Integer transacting; // tells if not in a transaction (0), transaction-in-progress (1)
+	private Integer requireConfirmation; // tells how many messages require confirmation of commit
 	private Boolean[] livingProcs;
 	private HashMap<String, String> playlist;
 	private ArrayList<Integer> sinceLastMessage;
 	private Long time;
 	private String command;
+	
+	private Lock lock;
 	
 	public Process(Integer id, Config configFile) {
 		this.id = id;
@@ -36,7 +41,12 @@ public class Process extends Thread {
 		for(int i = 0; i < 5; i++){
 			livingProcs[i] = true;
 		}
-		this.transacting = -1;
+		// set state to non-transacting at init
+		this.transacting = 0;
+		// lock to ensure that COMMIT finishes before changing state
+		this.lock = new ReentrantLock();
+		// number of confirmed commits
+		this.requireConfirmation = 0;		
 	}
 	
 	public void run() {
@@ -52,8 +62,8 @@ public class Process extends Thread {
 				else if(message.contains("PRECOMMIT")) {
 					preCommit(message);
 				}
-				else if(message.contains("COMMIT")) {
-					commit();
+				else if(message.contains("DOCOMMIT")) {
+					commit(message);
 				}
 				else if(message.contains("ABORT")) {
 					abort();
@@ -69,6 +79,10 @@ public class Process extends Thread {
 				}
 				else if(message.contains("KEEPALIVE")) {
 					keepalive(message);
+				}
+				else if(message.contains("COMMITTED")) {
+					requireConfirmation--;
+//					System.out.println("now require: " + requireConfirmation);
 				}
 			}
 			if(amCoord && numYes == 5) {
@@ -99,11 +113,20 @@ public class Process extends Thread {
 	}
 	
 	private void broadcast(String message) {
+		lock.lock();
 		for(int i=0; i < 5; i++) {
 			if(livingProcs[i]){
+				// we must be made aware of the fact that everyone 
+				// finished committing before controller can proceed
+				if (message.contains("DOCOMMIT")) {
+					requireConfirmation++;
+//					System.out.println("requireConformation inc: " + requireConfirmation);
+//					System.out.println(message);
+				}
 				network.sendMsg(i, message);
 			}
 		}
+		lock.unlock();
 	}
 	
 	private String buildMessage(String message) {
@@ -115,17 +138,17 @@ public class Process extends Thread {
 	}
 	
 	public void sendVoteReq(String command) {
-		System.out.println(command);
-		stage = 1;
-		amCoord = true;
-		broadcast(buildMessage("VOTE_REQ:" + command));
-		
 		// the controller knows of the state of the transaction 
 		// from the coordinator's state...
 		//
 		// once the coordinator indicates TERMINATED, 
 		// the controller can send the next instruction
 		this.transacting = 1;
+		
+		System.out.println(command);
+		stage = 1;
+		amCoord = true;
+		broadcast(buildMessage("VOTE_REQ:" + command));
 	}
 	
 	private void sendPreCommit() {
@@ -136,9 +159,14 @@ public class Process extends Thread {
 	private void sendCommit() {
 		stage = 0;
 		amCoord = false;
-		broadcast(buildMessage("COMMIT"));
-		// TODO: ensure that everyone receives commit before setting state to non-transaction
-		this.transacting = -1;
+		broadcast(buildMessage("DOCOMMIT"));
+		
+		// wait until commits finish at participant nodes
+		while (requireConfirmation > 0)
+		lock.lock();
+		// Does this ensure that everyone receives commit before setting state to non-transaction?
+		this.transacting = 0;
+		lock.unlock();
 	}
 	
 	private void sendAbort() {
@@ -166,11 +194,12 @@ public class Process extends Thread {
 		network.sendMsg(sender, buildMessage("ACK"));
 	}
 	
-	private void commit() {
+	private void commit(String message) {
 		//EXECUTE COMMAND
 		System.out.println(this.id + ":COMMITTING");
 		command = "";
 		isTransactionOn = false;
+		network.sendMsg(getSender(message), buildMessage("COMMITTED"));
 	}
 	
 	public int getTransactionState () {

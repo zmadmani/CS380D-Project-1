@@ -1,2 +1,2 @@
-p0:FOO
-p2:BAR
+0:FOO
+2:BAR
