@@ -1,6 +1,7 @@
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -16,6 +17,9 @@ public class Process extends Thread {
 	private Boolean amCoord;
 	private Boolean isTransactionOn;
 	private Boolean alive;
+	private Boolean amMessaging;
+	private LinkedList<String[]> outgoingMessages;
+	private Integer stopCountdown;
 	private Integer stage; //Tells which stage of the transaction it is on currently
 	private Boolean[] livingProcs;
 	private HashMap<String, String> playlist;
@@ -30,11 +34,14 @@ public class Process extends Thread {
 		network = new NetController(configFile);
 		alive = true;
 		amCoord = false;
+		amMessaging = true;
+		stopCountdown = -1; //-1 means not counting
 		isTransactionOn = false;
 		stage = 0; //0 --> nothing | 1 --> vote_req | 2 --> precommit
 		playlist = new HashMap<String, String>();
 		time = System.currentTimeMillis()/1000;
 		sinceLastMessage = new ArrayList<Integer>(Collections.nCopies(5, 0));
+		outgoingMessages = new LinkedList<String[]>();
 		livingProcs = new Boolean[5];
 		for(int i = 0; i < 5; i++){
 			livingProcs[i] = true;
@@ -91,7 +98,11 @@ public class Process extends Thread {
 			}
 			if(time < System.currentTimeMillis()/1000) {
 				time++;
-				broadcast(buildMessage("KEEPALIVE"));
+				for(int i=0; i < 5; i++) {
+					if(livingProcs[i]){
+						network.sendMsg(i, buildMessage("KEEPALIVE"));
+					}
+				}
 				for(int i = 0; i < 5; i++) {
 					sinceLastMessage.set(i, sinceLastMessage.get(i) + 1);
 					if(sinceLastMessage.get(i) > 2) {
@@ -106,9 +117,38 @@ public class Process extends Thread {
 	private void broadcast(String message) {
 		for(int i=0; i < 5; i++) {
 			if(livingProcs[i]){
-				network.sendMsg(i, message);
+				if(shouldMessage()) {
+					network.sendMsg(i, message);
+				}
+				else {
+					String[] temp = {message,Integer.toString(i)};
+					outgoingMessages.add(temp);
+				}
 			}
 		}
+	}
+	
+	private Boolean shouldMessage() {
+		if(this.id == 1) {
+			System.out.println("IN SHOULD MESSAGE: stopCountdown=" + stopCountdown + "/amMessaging=" + amMessaging);
+		}
+		
+		if(stopCountdown == -1) {
+			return true;
+		}
+		else if(amMessaging == false) {
+			return false;
+		}
+		else if(stopCountdown > 0) {
+			stopCountdown--;
+			return true;
+		}
+		else if(stopCountdown == 0) {
+			amMessaging = false;
+			return false;
+		}
+		//never be reached
+		return true;
 	}
 	
 	private String buildMessage(String message) {
@@ -152,7 +192,6 @@ public class Process extends Thread {
 	}
 	
 	private void vote(String message) {
-		//System.out.println(this.id + ":VOTING YES");
 		Integer vote = 1;
 		Integer sender = getSender(message);
 		command = message.split(":")[2];
@@ -172,10 +211,24 @@ public class Process extends Thread {
 		}
 		
 		if(vote == 1) {
-			network.sendMsg(sender, buildMessage("YES"));
+			if(shouldMessage()) {
+				System.out.println(this.id + ":VOTING YES");
+				network.sendMsg(sender, buildMessage("YES"));
+			}
+			else {
+				String[] temp = {message,Integer.toString(sender)};
+				outgoingMessages.add(temp);
+			}
 		}
 		else {
-			network.sendMsg(sender, buildMessage("NO"));
+			if(shouldMessage()) {
+				System.out.println(this.id + ":VOTING NO");
+				network.sendMsg(sender, buildMessage("NO"));
+			}
+			else {
+				String[] temp = {message,Integer.toString(sender)};
+				outgoingMessages.add(temp);
+			}
 		}
 	}
 	
@@ -186,9 +239,15 @@ public class Process extends Thread {
 	}
 	
 	private void preCommit(String message) {
-		System.out.println(this.id + ":ACK");
 		Integer sender = getSender(message);
-		network.sendMsg(sender, buildMessage("ACK"));
+		if(shouldMessage()) {
+			System.out.println(this.id + ":ACK");
+			network.sendMsg(sender, buildMessage("ACK"));
+		}
+		else {
+			String[] temp = {message,Integer.toString(sender)};
+			outgoingMessages.add(temp);
+		}
 	}
 	
 	private void commit(String message) {
@@ -219,6 +278,20 @@ public class Process extends Thread {
 		int sender = getSender(message);
 		sinceLastMessage.set(sender,0);
 		livingProcs[sender] = true;
+	}
+	
+	public void partialMessage(Integer numMessages) {
+		stopCountdown = numMessages;
+	}
+	
+	public void resumeMessages() {
+		amMessaging = true;
+		stopCountdown = -1;
+		Integer size = outgoingMessages.size();
+		for(int i = 0; i < size; i++) {
+			String[] message = outgoingMessages.pop();
+			network.sendMsg(Integer.parseInt(message[1]), message[0]);
+		}
 	}
 	
 	public void shutdown() {

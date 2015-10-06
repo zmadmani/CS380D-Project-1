@@ -55,8 +55,12 @@ public class Controller {
 			workingProc.sendVoteReq(command);
 			Thread.sleep(2 * 1000);
 			int readyProcesses = 0;
+			Long resume = System.currentTimeMillis() + 10000;
 			while(readyProcesses < 5) {
 				readyProcesses = 0;
+				if(resume < System.currentTimeMillis()) {
+					this.idToProc.get(1).resumeMessages();
+				}
 				for(Process p: idToProc) {
 					if(p.getTransactionState() == false) {
 						readyProcesses++;
@@ -133,6 +137,8 @@ public class Controller {
 			p.start();
 		}
 //		mainController.idToProc.get(0).sendVoteReq("COMMAND");
+		mainController.idToProc.get(1).partialMessage(5);
+		
 		mainController.executeInstructions();
 		Thread.sleep(10 * 1000);
 		for(Process p: mainController.idToProc) {
