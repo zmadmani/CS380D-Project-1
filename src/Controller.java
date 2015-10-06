@@ -5,6 +5,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 
 /**
@@ -16,9 +17,11 @@ public class Controller {
 	NetController masterNetwork;
 	Config configFile;
 	ArrayList<Process> idToProc; // i-th position corresponds to i-th process
+	Integer currLeaderIndex;
 	Process currLeader;
 	Process lastKilled;
 	ArrayList<String> instructions;
+	Boolean[] living;
 	
 	public Controller(String instructionsPath) throws FileNotFoundException, IOException {
 		idToProc = new ArrayList<Process>();
@@ -26,6 +29,10 @@ public class Controller {
 			Config config = new Config("properties_p" + i + ".txt");
 			idToProc.add(new Process(i, config));
 		}
+		
+		this.living = new Boolean[5];
+		Arrays.fill(this.living, Boolean.TRUE);
+		
 		
 		// initialize arraylist of instructions to be executed
 		this.instructions = new ArrayList<String>();
@@ -52,7 +59,11 @@ public class Controller {
 			
 			Process workingProc = this.idToProc.get(process);
 			
+			this.currLeaderIndex = process;
+			this.currLeader = workingProc;
+			
 			workingProc.sendVoteReq(command);
+			
 			Thread.sleep(2 * 1000);
 			int readyProcesses = 0;
 			Long resume = System.currentTimeMillis() + 10000;
@@ -87,15 +98,23 @@ public class Controller {
 	}
 	
 	public void kill(Integer id) {
-		
+		System.out.println("killing " + id);
+		idToProc.get(id).shutdown();
+		this.living[id] = false;
 	}
 	
 	public void killAll() {
-		
+		System.out.println("killing all");
+		for (Process p : idToProc) {
+			p.shutdown();
+		}
+		Arrays.fill(this.living, Boolean.FALSE);
 	}
 	
 	public void killLeader() {
-		
+		System.out.println("kill leader");
+		currLeader.shutdown();
+		this.living[currLeaderIndex] = false;		
 	}
 	
 	public void revive(Integer id) {
