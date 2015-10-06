@@ -1,4 +1,5 @@
 import java.io.BufferedReader;
+import java.io.Console;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
@@ -43,7 +44,7 @@ public class Controller {
 		}
 	}
 	
-	public void executeInstructions() {
+	public void executeInstructions() throws InterruptedException {
 		for (String instr : instructions) {
 			String[] parsedInstr = instr.split(":");
 			Integer process = Integer.parseInt(parsedInstr[0]);
@@ -52,10 +53,16 @@ public class Controller {
 			Process workingProc = this.idToProc.get(process);
 			
 			workingProc.sendVoteReq(command);
-			// Not sure if this is the correct approach
-			// wait until the transaction finishes before going 
-			// to the next one
-			while (workingProc.getTransactionState() == 1);
+			Thread.sleep(2 * 1000);
+			int readyProcesses = 0;
+			while(readyProcesses < 5) {
+				readyProcesses = 0;
+				for(Process p: idToProc) {
+					if(p.getTransactionState() == false) {
+						readyProcesses++;
+					}
+				}
+			}
 		}
 	}
 	
@@ -127,8 +134,9 @@ public class Controller {
 		}
 //		mainController.idToProc.get(0).sendVoteReq("COMMAND");
 		mainController.executeInstructions();
-		Thread.sleep(100 * 1000);
+		Thread.sleep(10 * 1000);
 		for(Process p: mainController.idToProc) {
+			p.displayPlaylist();
 			p.shutdown();
 		}
 	}

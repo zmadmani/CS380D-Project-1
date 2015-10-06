@@ -9,3 +9,8 @@ MESSAGES:
 	ABORT
 	PRECOMMIT
 	COMMIT
+
+COMMANDS:
+	ADD(songName,URL)
+	REMOVE(songName)
+	EDIT(songName,newSongName,newSongURL)

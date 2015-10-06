@@ -17,8 +17,6 @@ public class Process extends Thread {
 	private Boolean isTransactionOn;
 	private Boolean alive;
 	private Integer stage; //Tells which stage of the transaction it is on currently
-	private Integer transacting; // tells if not in a transaction (0), transaction-in-progress (1)
-	private Integer requireConfirmation; // tells how many messages require confirmation of commit
 	private Boolean[] livingProcs;
 	private HashMap<String, String> playlist;
 	private ArrayList<Integer> sinceLastMessage;
@@ -42,11 +40,8 @@ public class Process extends Thread {
 			livingProcs[i] = true;
 		}
 		// set state to non-transacting at init
-		this.transacting = 0;
 		// lock to ensure that COMMIT finishes before changing state
 		this.lock = new ReentrantLock();
-		// number of confirmed commits
-		this.requireConfirmation = 0;		
 	}
 	
 	public void run() {
@@ -74,15 +69,11 @@ public class Process extends Thread {
 				else if(message.contains("YES")) {
 					numYes++;
 				}
-				else if(message.contains("NO")) {
-					abort();
+				else if(message.contains("NO") && isTransactionOn) {
+					sendAbort();
 				}
 				else if(message.contains("KEEPALIVE")) {
 					keepalive(message);
-				}
-				else if(message.contains("COMMITTED")) {
-					requireConfirmation--;
-//					System.out.println("now require: " + requireConfirmation);
 				}
 			}
 			if(amCoord && numYes == 5) {
@@ -96,7 +87,7 @@ public class Process extends Thread {
 				else if(stage == 2) {
 					sendCommit();
 					numYes = 0;
-				}	
+				}
 			}
 			if(time < System.currentTimeMillis()/1000) {
 				time++;
@@ -113,20 +104,11 @@ public class Process extends Thread {
 	}
 	
 	private void broadcast(String message) {
-		lock.lock();
 		for(int i=0; i < 5; i++) {
 			if(livingProcs[i]){
-				// we must be made aware of the fact that everyone 
-				// finished committing before controller can proceed
-				if (message.contains("DOCOMMIT")) {
-					requireConfirmation++;
-//					System.out.println("requireConformation inc: " + requireConfirmation);
-//					System.out.println(message);
-				}
 				network.sendMsg(i, message);
 			}
 		}
-		lock.unlock();
 	}
 	
 	private String buildMessage(String message) {
@@ -143,7 +125,7 @@ public class Process extends Thread {
 		//
 		// once the coordinator indicates TERMINATED, 
 		// the controller can send the next instruction
-		this.transacting = 1;
+		this.isTransactionOn = true;
 		
 		System.out.println(command);
 		stage = 1;
@@ -160,30 +142,45 @@ public class Process extends Thread {
 		stage = 0;
 		amCoord = false;
 		broadcast(buildMessage("DOCOMMIT"));
-		
-		// wait until commits finish at participant nodes
-		while (requireConfirmation > 0)
-		lock.lock();
-		// Does this ensure that everyone receives commit before setting state to non-transaction?
-		this.transacting = 0;
-		lock.unlock();
 	}
 	
 	private void sendAbort() {
 		stage = 0;
 		amCoord = false;
+		isTransactionOn = false;
 		broadcast(buildMessage("ABORT"));
 	}
 	
 	private void vote(String message) {
-		System.out.println(this.id + ":VOTING YES");
+		//System.out.println(this.id + ":VOTING YES");
+		Integer vote = 1;
 		Integer sender = getSender(message);
 		command = message.split(":")[2];
-		network.sendMsg(sender, buildMessage("YES"));
+				
+		if(command.startsWith("ADD")) {
+			vote = 1;
+		}
+		else if(command.startsWith("REMOVE")) {
+			if(playlist.get(command.split("[(]")[1].split("[)]")[0]) == null) {
+				vote = 0;
+			}
+		}
+		else if(command.startsWith("EDIT")) {
+			if(playlist.get(command.split("[(]")[1].split(",")[0]) == null) {
+				vote = 0;
+			}
+		}
+		
+		if(vote == 1) {
+			network.sendMsg(sender, buildMessage("YES"));
+		}
+		else {
+			network.sendMsg(sender, buildMessage("NO"));
+		}
 	}
 	
 	private void abort() {
-		System.out.println(this.id + "ABORTING");
+		System.out.println(this.id + ":ABORTING");
 		command = "";
 		isTransactionOn = false;
 	}
@@ -195,15 +192,26 @@ public class Process extends Thread {
 	}
 	
 	private void commit(String message) {
-		//EXECUTE COMMAND
+		//EXECUTE COMMAND		
+		if(command.startsWith("ADD")) {
+			String[] args = command.substring(4,command.length()-1).split(",");
+			playlist.put(args[0], args[1]);
+		}
+		else if(command.startsWith("REMOVE")) {
+			String arg= command.substring(7,command.length()-1);
+			playlist.remove(arg);
+		}
+		else if(command.startsWith("EDIT")) {
+			String[] args = command.substring(5,command.length()-1).split(",");
+			playlist.replace(args[0], args[2]);
+		}
 		System.out.println(this.id + ":COMMITTING");
 		command = "";
 		isTransactionOn = false;
-		network.sendMsg(getSender(message), buildMessage("COMMITTED"));
 	}
 	
-	public int getTransactionState () {
-		return transacting;
+	public Boolean getTransactionState () {
+		return this.isTransactionOn;
 	}
 	
 	private void keepalive(String message) {
@@ -224,5 +232,9 @@ public class Process extends Thread {
 	
 	public void log(String message) {
 		//add it to a file
+	}
+	
+	public void displayPlaylist() {
+		System.out.println(playlist);
 	}
 }
