@@ -51,7 +51,7 @@ public class Controller {
 		}
 	}
 	
-	public void executeInstructions() throws InterruptedException {
+	public void executeInstructions() throws InterruptedException, IOException {
 		for (String instr : instructions) {
 			String[] parsedInstr = instr.split(":");
 			Integer process = Integer.parseInt(parsedInstr[0]);
@@ -64,14 +64,17 @@ public class Controller {
 			
 			workingProc.sendVoteReq(command);
 			
-			Thread.sleep(2 * 1000);
+			if(currLeaderIndex != 4) {
+				Thread.sleep(450);
+				kill(4);
+				Thread.sleep(200);
+				revive(4);
+			}
+			
 			int readyProcesses = 0;
 			Long resume = System.currentTimeMillis() + 10000;
 			while(readyProcesses < 5) {
 				readyProcesses = 0;
-				if(resume < System.currentTimeMillis()) {
-					this.idToProc.get(1).resumeMessages();
-				}
 				for(Process p: idToProc) {
 					if(p.getTransactionState() == false) {
 						readyProcesses++;
@@ -97,13 +100,13 @@ public class Controller {
 		
 	}
 	
-	public void kill(Integer id) {
+	public void kill(Integer id) throws IOException {
 		System.out.println("killing " + id);
 		idToProc.get(id).shutdown();
 		this.living[id] = false;
 	}
 	
-	public void killAll() {
+	public void killAll() throws IOException {
 		System.out.println("killing all");
 		for (Process p : idToProc) {
 			p.shutdown();
@@ -111,14 +114,17 @@ public class Controller {
 		Arrays.fill(this.living, Boolean.FALSE);
 	}
 	
-	public void killLeader() {
+	public void killLeader() throws IOException {
 		System.out.println("kill leader");
 		currLeader.shutdown();
 		this.living[currLeaderIndex] = false;		
 	}
 	
-	public void revive(Integer id) {
-		
+	public void revive(Integer id) throws FileNotFoundException, IOException {
+		System.out.println("revive " + id);
+		Config config = new Config("properties_p" + id + ".txt");
+		idToProc.set(id, new Process(id,config));
+		idToProc.get(id).start();
 	}
 	
 	public void reviveLast(Integer id) {
@@ -156,10 +162,10 @@ public class Controller {
 			p.start();
 		}
 //		mainController.idToProc.get(0).sendVoteReq("COMMAND");
-		mainController.idToProc.get(1).partialMessage(5);
+		//mainController.idToProc.get(1).partialMessage(5);
 		
 		mainController.executeInstructions();
-		Thread.sleep(10 * 1000);
+		//Thread.sleep(10 * 1000);
 		for(Process p: mainController.idToProc) {
 			p.displayPlaylist();
 			p.shutdown();
