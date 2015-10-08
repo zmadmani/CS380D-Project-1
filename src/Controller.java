@@ -19,6 +19,7 @@ public class Controller {
 	ArrayList<Process> idToProc; // i-th position corresponds to i-th process
 	Integer currLeaderIndex;
 	Process currLeader;
+	Integer lastKilledIndex;
 	Process lastKilled;
 	ArrayList<String> instructions;
 	Boolean[] living;
@@ -103,6 +104,8 @@ public class Controller {
 	public void kill(Integer id) throws IOException {
 		System.out.println("killing " + id);
 		idToProc.get(id).shutdown();
+		this.lastKilledIndex = id;
+		this.lastKilled = idToProc.get(id);
 		this.living[id] = false;
 	}
 	
@@ -111,12 +114,16 @@ public class Controller {
 		for (Process p : idToProc) {
 			p.shutdown();
 		}
+		this.lastKilledIndex = idToProc.size() - 1;
+		this.lastKilled = idToProc.get(idToProc.size() - 1);
 		Arrays.fill(this.living, Boolean.FALSE);
 	}
 	
 	public void killLeader() throws IOException {
 		System.out.println("kill leader");
 		currLeader.shutdown();
+		this.lastKilledIndex = currLeaderIndex;
+		this.lastKilled = currLeader;
 		this.living[currLeaderIndex] = false;		
 	}
 	
@@ -127,12 +134,18 @@ public class Controller {
 		idToProc.get(id).start();
 	}
 	
-	public void reviveLast(Integer id) {
-		
+	public void reviveLast() throws FileNotFoundException, IOException {
+		Config config = new Config("properties_p" + lastKilledIndex + ".txt");
+		idToProc.set(lastKilledIndex, new Process(lastKilledIndex, config));
+		idToProc.get(lastKilledIndex).start();
 	}
 	
-	public void reviveAll() {
-		
+	public void reviveAll() throws FileNotFoundException, IOException {
+		for (int i = 0; i < idToProc.size(); i++) {
+			Config config = new Config("properties_p" + i+ ".txt");
+			idToProc.set(i, new Process(i, config));
+			idToProc.get(i).start();
+		}
 	}
 	
 	public void partialMessage(Integer id, Integer numMsgs) {
@@ -140,7 +153,7 @@ public class Controller {
 	}
 	
 	public void resumeMessages(Integer id) {
-		
+		idToProc.get(id).resumeMessages();
 	}
 	
 	public void allClear() {
