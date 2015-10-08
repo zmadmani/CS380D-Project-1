@@ -97,6 +97,14 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
+				else if(message.contains("STATE_REQ_COORD") && inRecovery) {
+					try {
+						newCoord(message);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
 				else if(message.contains("STATE_REQ") && !inRecovery) {
 					try {
 						helpOthers(message);
@@ -112,6 +120,9 @@ public class Process extends Thread {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
+				}
+				else if(message.contains("URELECTED") && inRecovery) {
+					amElected(message);
 				}
 				else if(message.contains("PRECOMMIT") && isTransactionOn && !inRecovery) {
 					preCommit(message);
@@ -187,7 +198,7 @@ public class Process extends Thread {
 				else {
 					if(sinceLastMessage.get(currentCoord) > TIMEOUT) {
 						timedOut[currentCoord] = true;
-						//INITIATE ELECTION
+						initiateElection();
 					}
 				}
 			}
@@ -309,6 +320,28 @@ public class Process extends Thread {
 		waiting = false;
 	}
 	
+	private void newCoord(String message) throws IOException {
+		int transNum = Integer.parseInt(message.split(":")[2]);
+		BufferedReader logRead = new BufferedReader(new FileReader(logName));
+		String response = "";
+		for(int i = 0; i < transNum; i++) {
+			if(response != null || Integer.parseInt(response.split(":")[0]) != transNum) {
+				response = logRead.readLine();
+			}
+		}
+		if(response == null) {
+			response = "";
+		}
+		else if(response.contains("COMMIT")) {
+			response = "STATE_RESP:COMMIT:" + command;
+		}
+		else {
+			response = "STATE_RESP:ABORT:" + command;
+		}
+		Integer sender = getSender(message);
+		network.sendMsg(sender, buildMessage(response));
+	}
+	
 	private void helpOthers(String message) throws IOException {
 		int transNum = Integer.parseInt(message.split(":")[2]);
 		if(transCounter == transNum && isTransactionOn) {
@@ -318,9 +351,14 @@ public class Process extends Thread {
 			BufferedReader logRead = new BufferedReader(new FileReader(logName));
 			String response = "";
 			for(int i = 0; i < transNum; i++) {
-				response = logRead.readLine();
+				if(response != null || Integer.parseInt(response.split(":")[0]) != transNum) {
+					response = logRead.readLine();
+				}
 			}
-			if(response.contains("COMMIT")) {
+			if(response == null) {
+				response = "";
+			}
+			else if(response.contains("COMMIT")) {
 				response = "STATE_RESP:COMMIT:" + command;
 			}
 			else {
@@ -491,6 +529,22 @@ public class Process extends Thread {
 		livingProcs[sender] = true;
 	}
 	
+	private void initiateElection() {
+		Integer newCoord = currentCoord % 5;
+		network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
+	}
+	
+	private void amElected(String message) {
+		String transNum = message.split(":")[2];
+		this.isTransactionOn = true;
+		clearTimeouts();
+		System.out.println(this.id + ":ELECTED");
+		stage = 1;
+		amCoord = true;
+		currentCoord = this.id;
+		broadcast(buildMessage("STATE_REQ_COORD:" + transNum));
+	}
+	
 	public void partialMessage(Integer numMessages) {
 		stopCountdown = numMessages;
 	}
@@ -550,6 +604,11 @@ public class Process extends Thread {
 					transCounter++;
 					broadcast(buildMessage("STATE_REQ:" + transNum));
 					waiting = true;
+				}
+				else if(line.endsWith("PRECOMMIT;")) {
+					String[] lineArray = line.split(";");
+					command = lineArray[lineArray.length-1].split(":")[1];
+					//LOG PRECOMITTTSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS
 				}
 				else if(line.startsWith("VOTE_REQ")) {
 					//I WUZ COORD
