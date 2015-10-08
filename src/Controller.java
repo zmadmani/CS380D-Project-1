@@ -149,7 +149,7 @@ public class Controller {
 	}
 	
 	public void partialMessage(Integer id, Integer numMsgs) {
-		
+		idToProc.get(id).partialMessage(numMsgs);
 	}
 	
 	public void resumeMessages(Integer id) {
