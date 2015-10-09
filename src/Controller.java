@@ -66,11 +66,12 @@ public class Controller {
 			workingProc.sendVoteReq(command);
 			
 			if(currLeaderIndex != 4) {
-				Thread.sleep(450);
-				kill(4);
-				Thread.sleep(200);
-				revive(4);
+				partialKill(4,1);
 			}
+			
+			Thread.sleep(5 * 1000);
+			revive(4);
+			Thread.sleep(2 * 1000);
 			
 			int readyProcesses = 0;
 			Long resume = System.currentTimeMillis() + 10000;
@@ -129,9 +130,11 @@ public class Controller {
 	
 	public void revive(Integer id) throws FileNotFoundException, IOException {
 		System.out.println("revive " + id);
-		Config config = new Config("properties_p" + id + ".txt");
-		idToProc.set(id, new Process(id,config));
-		idToProc.get(id).start();
+		if(idToProc.get(id).alive == null || idToProc.get(id).alive == false) {
+			Config config = new Config("properties_p" + id + ".txt");
+			idToProc.set(id, new Process(id,config));
+			idToProc.get(id).start();
+		}
 	}
 	
 	public void reviveLast() throws FileNotFoundException, IOException {
@@ -154,6 +157,10 @@ public class Controller {
 	
 	public void resumeMessages(Integer id) {
 		idToProc.get(id).resumeMessages();
+	}
+	
+	public void partialKill(Integer id, Integer numMsgs) {
+		idToProc.get(id).partialKill(numMsgs);
 	}
 	
 	public void allClear() {
