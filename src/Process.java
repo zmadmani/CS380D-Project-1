@@ -33,9 +33,6 @@ public class Process extends Thread {
 	private Integer killCountdown;
 	private Integer stage; //Tells which stage of the transaction it is on currently
 	private Boolean[] livingProcs;
-	private Boolean[] timedOut;
-	private ArrayList<Integer> sinceLastMessage;
-	private Boolean waiting;
 	private HashMap<String, String> playlist;
 	private ArrayList<Integer> sinceLastKeepAlive;
 	private Long time;
@@ -44,8 +41,8 @@ public class Process extends Thread {
 	private BufferedWriter logWrite;
 	private Boolean inRecovery;
 	private ArrayList<Integer> needStateResp;
-	private Integer numResponses;
 	private Integer collectedState;
+	private Boolean[] waitingOn;
 		
 	public Process(Integer id, Config configFile) throws IOException {
 		this.id = id;
@@ -61,26 +58,22 @@ public class Process extends Thread {
 		stage = 0; //0 --> nothing | 1 --> vote_req | 2 --> precommit //symmetric for both coord and participant
 		playlist = new HashMap<String, String>();
 		time = System.currentTimeMillis()/1000;
-		timedOut = new Boolean[5];
-		waiting = false;
-		numResponses = 0;
 		collectedState = 0; // 1 --> undecided | 2 --> precommit
-		sinceLastMessage = new ArrayList<Integer>(Collections.nCopies(5, 0));
 		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(5, 0));
 		outgoingMessages = new LinkedList<String[]>();
 		needStateResp = new ArrayList<Integer>();
 		livingProcs = new Boolean[5];
 		for(int i = 0; i < 5; i++){
 			livingProcs[i] = true;
-			timedOut[i] = false;
 		}
 		logName = "log_p" + this.id + ".txt";
 		inRecovery = false;
+		waitingOn = new Boolean[5];
+		logWrite = new BufferedWriter(new FileWriter(logName, true));
 		File f = new File(logName);
 		if (f.exists()) {
 			recover();
 		}
-		logWrite = new BufferedWriter(new FileWriter(logName, true));
 	}
 	
 	public void run() {
@@ -91,7 +84,6 @@ public class Process extends Thread {
 			for(String message : messages) {
 				if(!message.contains("KEEPALIVE") && !message.contains("STATE_REQ") && !message.contains("STATE_RESP")) {
 					Integer sender = getSender(message);
-					sinceLastMessage.set(sender,0);
 				}
 				
 				if(message.contains("VOTE_REQ") && !inRecovery) {
@@ -111,7 +103,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("STATE_RESP_COORD") && !inRecovery && waiting) {
+				else if(message.contains("STATE_RESP_COORD") && !inRecovery && amWaiting()) {
 					try {
 						gotHelpCoord(message);
 					} catch (IOException e) {
@@ -135,7 +127,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("URELECTED") && !inRecovery) {
+				else if(message.contains("URELECTED") && !inRecovery && !amCoord) {
 					try {
 						amElected(message);
 					} catch (IOException e) {
@@ -198,7 +190,7 @@ public class Process extends Thread {
 					numYes = 0;
 				}
 				//Waiting for ACKs
-				else if(stage == 2 && numYes >= numNotTimedOutProcesses()) {
+				else if(stage == 2 && numYes == numLivingProcesses()) {
 					try {
 						sendCommit();
 					} catch (IOException e) {
@@ -208,26 +200,8 @@ public class Process extends Thread {
 					numYes = 0;
 				}
 			}
-			if(waiting) {
-				if(amCoord) {
-					for(int i = 0; i < 5; i++) {
-						if(livingProcs[i]) {
-							if(sinceLastMessage.get(i) > TIMEOUT) {
-								timedOut[i] = true;
-								System.out.println(this.id + ":PROCESS " + i + " TIMEDOUT WITH VALUE: " + sinceLastMessage.get(i));
-							}
-						}
-					}
-				}
-				else {
-					if(sinceLastMessage.get(currentCoord) > (TIMEOUT+2)) {
-						timedOut[currentCoord] = true;
-						initiateElection();
-					}
-				}
-			}
 			if(amCoord) {
-				if(stage == 1 && numNotTimedOutProcesses() < 5) {
+				if(stage == 1 && numLivingProcesses() < 5) {
 					try {
 						sendAbort();
 					} catch (IOException e) {
@@ -245,9 +219,11 @@ public class Process extends Thread {
 				}
 				for(int i = 0; i < 5; i++) {
 					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-					sinceLastMessage.set(i, sinceLastMessage.get(i) + 1);
-					if(sinceLastKeepAlive.get(i) > 2) {
+					if(sinceLastKeepAlive.get(i) > 2 && livingProcs[i] == true) {
 						livingProcs[i] = false;
+						if(currentCoord == i) {
+							initiateElection();
+						}
 					}
 				}
 			}
@@ -263,6 +239,9 @@ public class Process extends Thread {
 	private void broadcast(String message) throws IOException {
 		for(int i=0; i < 5; i++) {
 			if(livingProcs[i]){
+				if(currentCoord == 4) {
+					System.out.println("killCountdown: " + killCountdown);
+				}
 				if(shouldMessage()) {
 					network.sendMsg(i, message);
 				}
@@ -319,22 +298,25 @@ public class Process extends Thread {
 		// once the coordinator indicates TERMINATED, 
 		// the controller can send the next instruction
 		this.isTransactionOn = true;
-		clearTimeouts();
 		System.out.println("------------");
 		System.out.println(this.id + ":" + command);
 		stage = 1;
+		for(int i = 0; i < 5; i++) {
+			waitingOn[i] = true;
+		}
 		amCoord = true;
 		currentCoord = this.id;
 		log(transCounter + ";VOTE_REQ:" + command);
 		broadcast(buildMessage("VOTE_REQ:" + command));
-		waiting = true;
 	}
 	
 	private void sendPreCommit() throws IOException {
 		stage = 2;
 		//log("PRECOMMIT");
+		for(int i = 0; i < 5; i++) {
+			waitingOn[i] = true;
+		}
 		broadcast(buildMessage("PRECOMMIT"));
-		waiting = true;
 	}
 	
 	private void sendCommit() throws IOException {
@@ -344,7 +326,7 @@ public class Process extends Thread {
 		commit("");
 		amCoord = false;
 		broadcast(buildMessage("DOCOMMIT"));
-		waiting = false;
+		clearWaitingOn();
 	}
 	
 	private void sendAbort() throws IOException {
@@ -352,57 +334,62 @@ public class Process extends Thread {
 		amCoord = false;
 		abort();
 		broadcast(buildMessage("ABORT"));
-		waiting = false;
+		clearWaitingOn();
 	}
 	
 	private void newCoord(String message) throws IOException {
+		System.out.println(this.id + ":GOT STATE_REQ_COORD from " + getSender(message));
 		int transNum = Integer.parseInt(message.split(":")[2]);
+		currentCoord = getSender(message);
+		isTransactionOn = true;
 		BufferedReader logRead = new BufferedReader(new FileReader(logName));
-		String response = "";
+		String response = logRead.readLine();
+		String answer = "";
 		for(int i = 0; i < transNum; i++) {
-			if(response != null || Integer.parseInt(response.split(":")[0]) != transNum) {
+			if(response != null && Integer.parseInt(response.split(";")[0]) != transNum) {
 				response = logRead.readLine();
 			}
 		}
-		if(response.contains(";COMMIT")) {
-			response = "STATE_RESP:COMMIT:" + command;
-		}
-		else if(response == null || response.contains(";ABORT")) {
-			response = "STATE_RESP:ABORT:" + command;
+		
+		if(response == null || response.contains(";YES")) {
+			answer = "STATE_RESP_COORD:UNCERTAIN:" + command;
 		}
 		else {
-			if(isTransactionOn) {
-				if(stage == 1) {
-					response = "STATE_RESP:UNCERTAIN:" + command;
-				}
-				else if (stage == 2) {
-					response = "STATE_RESP:PRECOMMIT:" + command;
-				}
+			if(response.contains("PRECOMMIT")) {
+				answer = "STATE_RESP_COORD:PRECOMMIT:" + command;
+			}
+			if(response.contains(";COMMIT")) {
+				answer = "STATE_RESP_COORD:COMMIT:" + command;
+			}
+			if(response.contains("ABORT")) {
+				answer = "STATE_RESP_COORD:ABORT:" + command;
 			}
 		}
+		
 		Integer sender = getSender(message);
-		network.sendMsg(sender, buildMessage(response));
+		System.out.println("SENDING STATE TO " + sender + " with message: " + answer);
+		network.sendMsg(sender, buildMessage(answer));
+		logRead.close();
 	}
 	
 	private void gotHelpCoord(String message) throws IOException {
+		System.out.println(message);
 		Integer sender = getSender(message);
 		if(message.contains("ABORT")) {
-			waiting = false;
 			sendAbort();
 		}
 		else if(message.contains("COMMIT")) {
-			waiting = false;
 			sendCommit();
 		}
 		else {
-			numResponses++;
+			waitingOn[sender] = false;
 			if(message.contains("UNCERTAIN")) {
 				collectedState = Math.max(collectedState,1);
 			}
 			else if(message.contains("PRECOMMIT")) {
 				collectedState = 2;
 			}
-			if(numResponses == 5) {
+			if(!amWaiting()) {
 				if(collectedState == 1) {
 					sendAbort();
 				}
@@ -415,61 +402,56 @@ public class Process extends Thread {
 	
 	private void helpOthers(String message) throws IOException {
 		int transNum = Integer.parseInt(message.split(":")[2]);
+		//System.out.println(this.id + ":" + transCounter + ":" + isTransactionOn);
 		if(transCounter == transNum && isTransactionOn) {
 			needStateResp.add(getSender(message));
 		}
 		else {
 			BufferedReader logRead = new BufferedReader(new FileReader(logName));
 			String response = logRead.readLine();
+			String answer = "";
 			for(int i = 0; i <= transNum; i++) {
 				if(response != null && Integer.parseInt(response.split(";")[0]) != transNum) {
 					response = logRead.readLine();
 				}
 			}
-			
-			String[] responseArr = response.split(";");
-			if(response == null) {
-				response = "STATE_RESP:UNCERTAIN:" + command;
-			}
-			else if(response.contains("COMMIT")) {
-				response = "STATE_RESP:COMMIT:" + responseArr[responseArr.length-1].split(":")[1];
+
+			if(response == null || response.contains("YES")) {
+				answer = "STATE_RESP:UNCERTAIN:" + command;
 			}
 			else {
-				response = "STATE_RESP:ABORT:";
+				if(response.contains("PRECOMMIT")) {
+					answer = "STATE_RESP:PRECOMMIT:" + command;
+				}
+				if(response.contains(";COMMIT")) {
+					String[] responseArr = response.split(";");
+					answer = "STATE_RESP:COMMIT:" + responseArr[responseArr.length-1].split(":")[1];
+				}
+				if(response.contains("ABORT")){
+					answer = "STATE_RESP:ABORT:";
+				}
 			}
 			Integer sender = getSender(message);
-			System.out.println(this.id + ":RESPONSE:" + response);
-			network.sendMsg(sender, buildMessage(response));
+			//System.out.println(this.id + ":RESPONSE:" + answer);
+			network.sendMsg(sender, buildMessage(answer));
+			logRead.close();
 		}
 	}
 	
 	private void gotHelp(String message) throws IOException {
 		String decision = message.split(":")[2];
-		command = message.split(":")[3];
-		System.out.println("GOTHELP: " + command);
+		//System.out.println("GOTHELP: " + message);
 		inRecovery = false;
-		if(decision.contains("COMMIT")) {
+		if(decision.equals("COMMIT")) {
+			command = message.split(":")[3];
 			commit("");
+		}
+		else if(decision.equals("PRECOMMIT")) {
+			
 		}
 		else {
 			abort();
 		}
-	}
-	
-	private void clearTimeouts() {
-		for(int i = 0; i < 5; i++) {
-			sinceLastMessage.set(i, 0);
-		}
-	}
-	
-	private Integer numNotTimedOutProcesses() {
-		Integer num_nonTimeout = 0;
-		for(Boolean timeout: timedOut) {
-			if(!timeout) {
-				num_nonTimeout++;
-			}
-		}
-		return num_nonTimeout;
 	}
 	
 	private Integer numLivingProcesses() {
@@ -487,11 +469,11 @@ public class Process extends Thread {
 			log(Integer.toString(transCounter));
 			stage = 1;
 		}
-		clearTimeouts();
 		transCounter++;
 		Integer vote = 1;
 		Integer sender = getSender(message);
 		currentCoord = sender;
+		waitingOn[currentCoord] = true;
 		command = message.split(":")[2];
 				
 		if(command.startsWith("ADD")) {
@@ -513,7 +495,6 @@ public class Process extends Thread {
 				System.out.println(this.id + ":VOTING YES");
 				log("YES");
 				network.sendMsg(sender, buildMessage("YES"));
-				waiting = true;
 			}
 			else {
 				String[] temp = {message,Integer.toString(sender)};
@@ -524,8 +505,7 @@ public class Process extends Thread {
 			if(shouldMessage()) {
 				System.out.println(this.id + ":VOTING NO");
 				network.sendMsg(sender, buildMessage("NO"));
-				log("ABORT");
-				waiting = false;
+				abort();
 			}
 			else {
 				String[] temp = {message,Integer.toString(sender)};
@@ -537,16 +517,13 @@ public class Process extends Thread {
 	private void abort() throws IOException {
 		command = "";
 		isTransactionOn = false;
-		waiting = false;
 		stage = 0;
-		for(int i = 0; i < 5; i++) {
-			timedOut[i] = false;
-		}
 		log("ABORT");
 		for(Integer i: needStateResp) {
 			network.sendMsg(i, buildMessage("STATE_RESP:ABORT:" + command));
 		}
 		needStateResp.clear();
+		clearWaitingOn();
 		System.out.println(this.id + ":ABORTING");
 	}
 	
@@ -555,8 +532,9 @@ public class Process extends Thread {
 		Integer sender = getSender(message);
 		if(shouldMessage()) {
 			System.out.println(this.id + ":ACK");
+			log("PRECOMMIT");
 			network.sendMsg(sender, buildMessage("ACK"));
-			waiting = true;
+			waitingOn[currentCoord] = true;
 		}
 		else {
 			String[] temp = {message,Integer.toString(sender)};
@@ -587,12 +565,9 @@ public class Process extends Thread {
 			network.sendMsg(i, buildMessage("STATE_RESP:COMMIT:" + command));
 		}
 		needStateResp.clear();
+		clearWaitingOn();
 		stage = 0;
 		command = "";
-		waiting = false;
-		for(int i = 0; i < 5; i++) {
-			timedOut[i] = false;
-		}
 	}
 	
 	public Boolean getTransactionState () {
@@ -608,19 +583,27 @@ public class Process extends Thread {
 	
 	private void initiateElection() {
 		Integer newCoord = currentCoord % 5;
+		while(livingProcs[newCoord] == false) {
+			newCoord = newCoord + 1;
+			newCoord = newCoord % 5;
+			System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
+		}
 		network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
 	}
 	
 	private void amElected(String message) throws IOException {
-		String transNum = message.split(":")[2];
-		this.isTransactionOn = true;
-		clearTimeouts();
-		System.out.println(this.id + ":ELECTED");
-		stage = 1;
 		amCoord = true;
+		this.isTransactionOn = true;
+		System.out.println(this.id + ":ELECTED");
+		String transNum = message.split(":")[2];
+		stage = 0;
 		currentCoord = this.id;
-		waiting = true;
 		broadcast(buildMessage("STATE_REQ_COORD:" + transNum));
+		for(int i = 0; i < 5; i++) {
+			if(livingProcs[i]) {
+				waitingOn[i] = true;
+			}
+		}
 	}
 	
 	public void partialMessage(Integer numMessages) {
@@ -641,14 +624,31 @@ public class Process extends Thread {
 		}
 	}
 	
+	private void clearWaitingOn() {
+		for(int i = 0; i < 5; i++) {
+			waitingOn[i] = false;
+		}
+	}
+	
+	private boolean amWaiting() {
+		boolean resp = false;
+		for(int i = 0; i < 5; i++) {
+			if(waitingOn[i] == true && livingProcs[i] == true){
+				resp = true;
+			}
+		}
+		return resp;
+	}
+	
 	public void shutdown() throws IOException {
 		if(alive) {
 			alive = false;
 			network.shutdown();
 			logWrite.flush();
 			logWrite.close();
-			BufferedReader logRead = new BufferedReader(new FileReader(logName));
-			String line;
+			System.out.println("die " + this.id);
+//			BufferedReader logRead = new BufferedReader(new FileReader(logName));
+//			String line;
 //			while((line = logRead.readLine()) != null) {
 //				System.out.println(line);
 //			}
@@ -665,7 +665,7 @@ public class Process extends Thread {
 			if(line.startsWith("VOTE_REQ")) {
 				amCurrentCoord = true;
 			}
-			if(line.contains("COMMIT")) {
+			if(line.contains(";COMMIT")) {
 				String[] lineArray = line.split(";");
 				//System.out.println(Arrays.toString(lineArray));
 				command = lineArray[lineArray.length-1].split(":")[1];
@@ -675,25 +675,32 @@ public class Process extends Thread {
 				commit("");
 			}
 			else if(line.contains("ABORT")) {
+				inRecovery = false;
 				transCounter++;
 			}
 			else {
-				if(line.endsWith("YES;")) {
+				if(line.endsWith("YES;") || line.contains("PRECOMMIT")) {
 					String[] lineArray = line.split(";");
 					System.out.println(Arrays.toString(lineArray));
 					Integer transNum = Integer.parseInt(lineArray[0]);
 					transCounter++;
 					broadcast(buildMessage("STATE_REQ:" + transNum));
+					for(int i = 0; i < 5; i++) {
+						waitingOn[i] = true;
+					}
 					waiting = true;
 				}
-				else if(line.startsWith("VOTE_REQ")) {
-					//I WUZ COORD
+				else if(line.contains("VOTE_REQ")) {
+					inRecovery = false;
+					transCounter++;
+					log("");
 				}
 			}
 		}
 		if(!waiting) {
 			inRecovery = false;
 		}
+		logRead.close();
 	}
 	
 	public void log(String message) throws IOException {
