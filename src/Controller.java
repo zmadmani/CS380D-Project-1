@@ -53,6 +53,7 @@ public class Controller {
 	}
 	
 	public void executeInstructions() throws InterruptedException, IOException {
+		int i = 0;
 		for (String instr : instructions) {
 			String[] parsedInstr = instr.split(":");
 			Integer process = Integer.parseInt(parsedInstr[0]);
@@ -64,14 +65,14 @@ public class Controller {
 			this.currLeader = workingProc;
 						
 			if(currLeaderIndex == 4) {
-				partialKill(4,2);
-				workingProc.sendVoteReq(command);
-				Thread.sleep(10 * 1000);
+				partialKill(4,4);
+				workingProc.sendVoteReq(command,i);
+				Thread.sleep(5 * 1000);
 				revive(4);
 				Thread.sleep(2 * 1000);
 			}
 			else {
-				workingProc.sendVoteReq(command);	
+				workingProc.sendVoteReq(command,i);	
 			}
 			
 			int readyProcesses = 0;
@@ -84,6 +85,8 @@ public class Controller {
 					}
 				}
 			}
+			Thread.sleep(500);
+			i++;
 		}
 	}
 	

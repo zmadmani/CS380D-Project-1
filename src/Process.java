@@ -291,7 +291,7 @@ public class Process extends Thread {
 		return Integer.parseInt(message.split(":")[0]);
 	}
 	
-	public void sendVoteReq(String command) throws IOException {
+	public void sendVoteReq(String command, int transNum) throws IOException {
 		// the controller knows of the state of the transaction 
 		// from the coordinator's state...
 		//
@@ -306,8 +306,9 @@ public class Process extends Thread {
 		}
 		amCoord = true;
 		currentCoord = this.id;
+		transCounter = transNum;
 		log(transCounter + ";VOTE_REQ:" + command);
-		broadcast(buildMessage("VOTE_REQ:" + command));
+		broadcast(buildMessage(transCounter + ":VOTE_REQ:" + command));
 	}
 	
 	private void sendPreCommit() throws IOException {
@@ -338,7 +339,7 @@ public class Process extends Thread {
 	}
 	
 	private void newCoord(String message) throws IOException {
-		System.out.println(this.id + ":GOT STATE_REQ_COORD from " + getSender(message));
+		//System.out.println(this.id + ":GOT STATE_REQ_COORD from " + getSender(message));
 		int transNum = Integer.parseInt(message.split(":")[2]);
 		currentCoord = getSender(message);
 		isTransactionOn = true;
@@ -349,6 +350,11 @@ public class Process extends Thread {
 			if(response != null && Integer.parseInt(response.split(";")[0]) != transNum) {
 				response = logRead.readLine();
 			}
+		}
+		
+		if(response == null) {
+			transCounter = transNum;
+			log("WTF" + transCounter);
 		}
 		
 		if(response == null || response.contains(";YES")) {
@@ -367,18 +373,18 @@ public class Process extends Thread {
 		}
 		
 		Integer sender = getSender(message);
-		System.out.println("SENDING STATE TO " + sender + " with message: " + answer);
+		//System.out.println("SENDING STATE TO " + sender + " with message: " + answer);
 		network.sendMsg(sender, buildMessage(answer));
 		logRead.close();
 	}
 	
 	private void gotHelpCoord(String message) throws IOException {
-		System.out.println(message);
+		//System.out.println(message);
 		Integer sender = getSender(message);
 		if(message.contains("ABORT")) {
 			sendAbort();
 		}
-		else if(message.contains("COMMIT")) {
+		else if(message.contains(":COMMIT")) {
 			sendCommit();
 		}
 		else {
@@ -396,6 +402,7 @@ public class Process extends Thread {
 				else if(collectedState == 2) {
 					sendPreCommit();
 				}
+				collectedState = 0;
 			}
 		}
 	}
@@ -419,7 +426,7 @@ public class Process extends Thread {
 			if(response == null || response.contains("YES")) {
 				answer = "STATE_RESP:UNCERTAIN:" + command;
 			}
-			else {
+			if(response != null) {
 				if(response.contains("PRECOMMIT")) {
 					answer = "STATE_RESP:PRECOMMIT:" + command;
 				}
@@ -438,20 +445,17 @@ public class Process extends Thread {
 		}
 	}
 	
-	private void gotHelp(String message) throws IOException {
+	private void gotHelp(String message) throws IOException {		
 		String decision = message.split(":")[2];
 		//System.out.println("GOTHELP: " + message);
-		inRecovery = false;
 		if(decision.equals("COMMIT")) {
 			command = message.split(":")[3];
 			commit("");
 		}
-		else if(decision.equals("PRECOMMIT")) {
-			
-		}
 		else {
 			abort();
 		}
+		inRecovery = false;
 	}
 	
 	private Integer numLivingProcesses() {
@@ -465,16 +469,16 @@ public class Process extends Thread {
 	}
 	
 	private void vote(String message) throws IOException {
+		transCounter = Integer.parseInt(message.split(":")[1]);
 		if(!amCoord) {
 			log(Integer.toString(transCounter));
 			stage = 1;
 		}
-		transCounter++;
 		Integer vote = 1;
 		Integer sender = getSender(message);
 		currentCoord = sender;
 		waitingOn[currentCoord] = true;
-		command = message.split(":")[2];
+		command = message.split(":")[3];
 				
 		if(command.startsWith("ADD")) {
 			vote = 1;
@@ -586,7 +590,7 @@ public class Process extends Thread {
 		while(livingProcs[newCoord] == false) {
 			newCoord = newCoord + 1;
 			newCoord = newCoord % 5;
-			System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
+			//System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
 		}
 		network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
 	}
@@ -594,7 +598,7 @@ public class Process extends Thread {
 	private void amElected(String message) throws IOException {
 		amCoord = true;
 		this.isTransactionOn = true;
-		System.out.println(this.id + ":ELECTED");
+		System.out.println(this.id + ":ELECTED COORDINATOR");
 		String transNum = message.split(":")[2];
 		stage = 0;
 		currentCoord = this.id;
@@ -644,7 +648,6 @@ public class Process extends Thread {
 		if(alive) {
 			alive = false;
 			network.shutdown();
-			logWrite.flush();
 			logWrite.close();
 			System.out.println("die " + this.id);
 //			BufferedReader logRead = new BufferedReader(new FileReader(logName));
@@ -669,22 +672,21 @@ public class Process extends Thread {
 				String[] lineArray = line.split(";");
 				//System.out.println(Arrays.toString(lineArray));
 				command = lineArray[lineArray.length-1].split(":")[1];
-				Integer transNum = Integer.parseInt(lineArray[0]);
-				transCounter++;
+				transCounter = Integer.parseInt(lineArray[0]);
 				//System.out.println(command);
 				commit("");
 			}
 			else if(line.contains("ABORT")) {
-				inRecovery = false;
-				transCounter++;
+				String[] lineArray = line.split(";");
+				transCounter = Integer.parseInt(lineArray[0]);
+				abort();
 			}
 			else {
 				if(line.endsWith("YES;") || line.contains("PRECOMMIT")) {
 					String[] lineArray = line.split(";");
 					System.out.println(Arrays.toString(lineArray));
-					Integer transNum = Integer.parseInt(lineArray[0]);
-					transCounter++;
-					broadcast(buildMessage("STATE_REQ:" + transNum));
+					transCounter = Integer.parseInt(lineArray[0]);
+					broadcast(buildMessage("STATE_REQ:" + transCounter));
 					for(int i = 0; i < 5; i++) {
 						waitingOn[i] = true;
 					}
@@ -692,8 +694,9 @@ public class Process extends Thread {
 				}
 				else if(line.contains("VOTE_REQ")) {
 					inRecovery = false;
-					transCounter++;
+					transCounter = Integer.parseInt(line.split(";")[0]);
 					log("");
+					System.out.println(this.id + ":ABORTING");
 				}
 			}
 		}
