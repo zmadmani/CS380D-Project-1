@@ -66,12 +66,16 @@ public class Controller {
 			this.currLeaderIndex = process;
 			this.currLeader = workingProc;
 						
-			if(currLeaderIndex == 4) {
-				partialKill(4,4);
+			if(currLeaderIndex == 2) {
+				int PROC = 2;
+				int numMsg = 7;
+				partialKill(PROC,numMsg);
+				partialKill(3,2);
 				workingProc.sendVoteReq(command,i);
-				Thread.sleep(5 * 1000);
-				revive(4);
-				Thread.sleep(2 * 1000);
+				Thread.sleep(10 * 1000);
+				revive(PROC);
+				revive(3);
+				Thread.sleep(4 * 1000);
 			}
 			else {
 				workingProc.sendVoteReq(command,i);	

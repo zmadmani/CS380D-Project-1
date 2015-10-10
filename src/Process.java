@@ -113,7 +113,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("STATE_REQ") && !inRecovery) {
+				else if(message.contains("STATE_REQ:") && !inRecovery) {
 					try {
 						helpOthers(message);
 					} catch (IOException e) {
@@ -121,7 +121,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("STATE_RESP") && inRecovery) {
+				else if(message.contains("STATE_RESP:") && inRecovery) {
 					try {
 						gotHelp(message);
 					} catch (IOException e) {
@@ -137,7 +137,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("PRECOMMIT") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("PRECOMMIT") && isTransactionOn && !inRecovery) {
 					try {
 						preCommit(message);
 					} catch (IOException e) {
@@ -145,7 +145,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("DOCOMMIT") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("DOCOMMIT") && isTransactionOn && !inRecovery) {
 					try {
 						commit(message);
 					} catch (IOException e) {
@@ -153,7 +153,7 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("ABORT") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("ABORT") && isTransactionOn && !inRecovery) {
 					try {
 						abort();
 					} catch (IOException e) {
@@ -161,13 +161,13 @@ public class Process extends Thread {
 						e.printStackTrace();
 					}
 				}
-				else if(message.contains("ACK") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("ACK") && isTransactionOn && !inRecovery) {
 					numYes++;
 				}
-				else if(message.contains("YES") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("YES") && isTransactionOn && !inRecovery) {
 					numYes++;
 				}
-				else if(message.contains("NO") && isTransactionOn && !inRecovery) {
+				else if(message.endsWith("NO") && isTransactionOn && !inRecovery) {
 					try {
 						sendAbort();
 					} catch (IOException e) {
@@ -212,7 +212,7 @@ public class Process extends Thread {
 					}
 				}
 			}
-			if(time < System.currentTimeMillis()/1000 && !inRecovery) {
+			if(time < System.currentTimeMillis()/1000 && !inRecovery && livingProcs[id]) {
 				time++;
 				for(int i=0; i < numProcs; i++) {
 					if(livingProcs[i]){
@@ -221,10 +221,15 @@ public class Process extends Thread {
 				}
 				for(int i = 0; i < numProcs; i++) {
 					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-					if(sinceLastKeepAlive.get(i) > 2 && livingProcs[i] == true) {
+					if(sinceLastKeepAlive.get(i) > 3 && livingProcs[i] == true) {
 						livingProcs[i] = false;
 						if(currentCoord == i) {
-							initiateElection();
+							try {
+								initiateElection();
+							} catch (IOException e) {
+								// TODO Auto-generated catch block
+								e.printStackTrace();
+							}
 						}
 					}
 				}
@@ -241,9 +246,6 @@ public class Process extends Thread {
 	private void broadcast(String message) throws IOException {
 		for(int i=0; i < numProcs; i++) {
 			if(livingProcs[i]){
-				if(currentCoord == 4) {
-					System.out.println("killCountdown: " + killCountdown);
-				}
 				if(shouldMessage()) {
 					network.sendMsg(i, message);
 				}
@@ -274,6 +276,7 @@ public class Process extends Thread {
 		}
 		
 		if(killCountdown > 0) {
+			System.out.println("KILLCOUNTDOWN: " + killCountdown);
 			killCountdown--;
 			return_stmt = true;
 		}
@@ -324,18 +327,17 @@ public class Process extends Thread {
 	
 	private void sendCommit() throws IOException {
 		stage = 0;
-		isTransactionOn = false;
-		log("COMMIT:" + command);
-		commit("");
-		amCoord = false;
+//		isTransactionOn = false;
+//		log("COMMIT:" + command);
+//		commit("");
 		broadcast(buildMessage("DOCOMMIT"));
 		clearWaitingOn();
 	}
 	
 	private void sendAbort() throws IOException {
-		stage = 0;
-		amCoord = false;
-		abort();
+		//stage = 0;
+		//amCoord = false;
+		//abort();
 		broadcast(buildMessage("ABORT"));
 		clearWaitingOn();
 	}
@@ -356,24 +358,26 @@ public class Process extends Thread {
 		
 		if(response == null) {
 			transCounter = transNum;
-			log("WTF" + transCounter);
 		}
 		
 		if(response == null || response.contains(";YES")) {
 			answer = "STATE_RESP_COORD:UNCERTAIN:" + command;
 		}
-		else {
+		if(response != null) {
 			if(response.contains("PRECOMMIT")) {
 				answer = "STATE_RESP_COORD:PRECOMMIT:" + command;
 			}
 			if(response.contains(";COMMIT")) {
-				answer = "STATE_RESP_COORD:COMMIT:" + command;
+				String[] responseArr = response.split(";");
+				answer = "STATE_RESP_COORD:COMMIT:" + responseArr[responseArr.length-1].split(":")[1];
+				isTransactionOn = false;
 			}
 			if(response.contains("ABORT")) {
 				answer = "STATE_RESP_COORD:ABORT:" + command;
+				isTransactionOn = false;
 			}
 		}
-		
+		System.out.println(this.id + ":HELPING COORD: " + answer);
 		Integer sender = getSender(message);
 		//System.out.println("SENDING STATE TO " + sender + " with message: " + answer);
 		network.sendMsg(sender, buildMessage(answer));
@@ -450,6 +454,7 @@ public class Process extends Thread {
 	private void gotHelp(String message) throws IOException {		
 		String decision = message.split(":")[2];
 		//System.out.println("GOTHELP: " + message);
+		inRecovery = false;
 		if(decision.equals("COMMIT")) {
 			command = message.split(":")[3];
 			commit("");
@@ -457,7 +462,6 @@ public class Process extends Thread {
 		else {
 			abort();
 		}
-		inRecovery = false;
 	}
 	
 	private Integer numLivingProcesses() {
@@ -472,13 +476,16 @@ public class Process extends Thread {
 	
 	private void vote(String message) throws IOException {
 		transCounter = Integer.parseInt(message.split(":")[1]);
+		Integer sender = getSender(message);
+		currentCoord = sender;
+		if(currentCoord != this.id) {
+			amCoord = false;
+		}
 		if(!amCoord) {
 			log(Integer.toString(transCounter));
 			stage = 1;
 		}
 		Integer vote = 1;
-		Integer sender = getSender(message);
-		currentCoord = sender;
 		waitingOn[currentCoord] = true;
 		command = message.split(":")[3];
 				
@@ -524,6 +531,7 @@ public class Process extends Thread {
 		command = "";
 		isTransactionOn = false;
 		stage = 0;
+		currentCoord = -1;
 		log("ABORT");
 		for(Integer i: needStateResp) {
 			network.sendMsg(i, buildMessage("STATE_RESP:ABORT:" + command));
@@ -548,7 +556,7 @@ public class Process extends Thread {
 		}
 	}
 	
-	private void commit(String message) throws IOException {
+	private void commit(String message) throws IOException {		
 		//EXECUTE COMMAND		
 		if(command.startsWith("ADD")) {
 			String[] args = command.substring(4,command.length()-1).split(",");
@@ -562,17 +570,16 @@ public class Process extends Thread {
 			String[] args = command.substring(numProcs,command.length()-1).split(",");
 			playlist.replace(args[0], args[2]);
 		}
-		isTransactionOn = false;
 		System.out.println(this.id + ":COMMITTING");
-		if(!amCoord) {
-			log("COMMIT:" + command);
-		}
+		isTransactionOn = false;
+		log("COMMIT:" + command);
 		for(Integer i: needStateResp) {
 			network.sendMsg(i, buildMessage("STATE_RESP:COMMIT:" + command));
 		}
+		currentCoord = -1;
+		stage = 0;
 		needStateResp.clear();
 		clearWaitingOn();
-		stage = 0;
 		command = "";
 	}
 	
@@ -587,29 +594,56 @@ public class Process extends Thread {
 		livingProcs[sender] = true;
 	}
 	
-	private void initiateElection() {
+	private void initiateElection() throws IOException {
+		System.out.println(this.id + ":STARTING ELECTION");
 		Integer newCoord = currentCoord % numProcs;
 		while(livingProcs[newCoord] == false) {
 			newCoord = newCoord + 1;
 			newCoord = newCoord % numProcs;
-			//System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
+			System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
 		}
-		network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
+		currentCoord = newCoord;
+		if(shouldMessage()) {
+			network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
+		}
+		else {
+			String[] temp = {buildMessage("URELECTED:" + transCounter),Integer.toString(newCoord)};
+			outgoingMessages.add(temp);
+		}
 	}
 	
 	private void amElected(String message) throws IOException {
 		amCoord = true;
+		transCounter = Integer.parseInt(message.split(":")[2]);
 		this.isTransactionOn = true;
 		System.out.println(this.id + ":ELECTED COORDINATOR");
-		String transNum = message.split(":")[2];
 		stage = 0;
 		currentCoord = this.id;
-		broadcast(buildMessage("STATE_REQ_COORD:" + transNum));
+		broadcast(buildMessage("STATE_REQ_COORD:" + transCounter));
 		for(int i = 0; i < numProcs; i++) {
 			if(livingProcs[i]) {
 				waitingOn[i] = true;
 			}
 		}
+		//Check logs for commit and abort
+		BufferedReader logRead = new BufferedReader(new FileReader(logName));
+		String response = logRead.readLine();
+		for(int i = 0; i <= transCounter; i++) {
+			if(response != null && Integer.parseInt(response.split(";")[0]) != transCounter) {
+				response = logRead.readLine();
+			}
+		}
+		if(response.contains(";COMMIT")) {
+			clearWaitingOn();
+			isTransactionOn = false;
+			sendCommit();
+		}
+		else if(response.contains(";ABORT")) {
+			clearWaitingOn();
+			isTransactionOn = false;
+			sendAbort();
+		}
+		logRead.close();
 	}
 	
 	public void partialMessage(Integer numMessages) {
@@ -650,6 +684,7 @@ public class Process extends Thread {
 		if(alive) {
 			alive = false;
 			network.shutdown();
+			logWrite.flush();
 			logWrite.close();
 			System.out.println("die " + this.id);
 //			BufferedReader logRead = new BufferedReader(new FileReader(logName));
@@ -666,10 +701,7 @@ public class Process extends Thread {
 		Boolean waiting = false;
 		String line;
 		Boolean amCurrentCoord = false;
-		while((line = logRead.readLine()) != null) {
-			if(line.startsWith("VOTE_REQ")) {
-				amCurrentCoord = true;
-			}
+		while((line = logRead.readLine()) != null && inRecovery) {
 			if(line.contains(";COMMIT")) {
 				String[] lineArray = line.split(";");
 				//System.out.println(Arrays.toString(lineArray));
@@ -699,6 +731,16 @@ public class Process extends Thread {
 					transCounter = Integer.parseInt(line.split(";")[0]);
 					log("");
 					System.out.println(this.id + ":ABORTING");
+				}
+				else{
+					inRecovery = false;
+					System.out.println(this.id + ":ABORTING");
+					if(line.isEmpty()) {
+						log("-1");
+					}
+					else {
+						log("");
+					}
 				}
 			}
 		}
