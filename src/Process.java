@@ -21,6 +21,7 @@ public class Process extends Thread {
 	public static Integer TIMEOUT = 3;
 	
 	private NetController network;
+	private Integer numProcs;
 	private Integer id;
 	private Integer transCounter;
 	private Boolean amCoord;
@@ -44,9 +45,10 @@ public class Process extends Thread {
 	private Integer collectedState;
 	private Boolean[] waitingOn;
 		
-	public Process(Integer id, Config configFile) throws IOException {
+	public Process(Integer id, Config configFile, Integer numProcs) throws IOException {
 		this.id = id;
 		network = new NetController(configFile);
+		this.numProcs = numProcs;
 		alive = true;
 		amCoord = false;
 		currentCoord = -1;
@@ -59,16 +61,16 @@ public class Process extends Thread {
 		playlist = new HashMap<String, String>();
 		time = System.currentTimeMillis()/1000;
 		collectedState = 0; // 1 --> undecided | 2 --> precommit
-		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(5, 0));
+		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(numProcs, 0));
 		outgoingMessages = new LinkedList<String[]>();
 		needStateResp = new ArrayList<Integer>();
-		livingProcs = new Boolean[5];
-		for(int i = 0; i < 5; i++){
+		livingProcs = new Boolean[numProcs];
+		for(int i = 0; i < numProcs; i++){
 			livingProcs[i] = true;
 		}
 		logName = "log_p" + this.id + ".txt";
 		inRecovery = false;
-		waitingOn = new Boolean[5];
+		waitingOn = new Boolean[numProcs];
 		logWrite = new BufferedWriter(new FileWriter(logName, true));
 		File f = new File(logName);
 		if (f.exists()) {
@@ -179,7 +181,7 @@ public class Process extends Thread {
 			}
 			if(amCoord) {
 				//Waiting for votes
-				if(stage == 1 && numYes == 5) {
+				if(stage == 1 && numYes == numProcs) {
 					//TODO: need to vote still
 					try {
 						sendPreCommit();
@@ -201,7 +203,7 @@ public class Process extends Thread {
 				}
 			}
 			if(amCoord) {
-				if(stage == 1 && numLivingProcesses() < 5) {
+				if(stage == 1 && numLivingProcesses() < numProcs) {
 					try {
 						sendAbort();
 					} catch (IOException e) {
@@ -212,12 +214,12 @@ public class Process extends Thread {
 			}
 			if(time < System.currentTimeMillis()/1000 && !inRecovery) {
 				time++;
-				for(int i=0; i < 5; i++) {
+				for(int i=0; i < numProcs; i++) {
 					if(livingProcs[i]){
 						network.sendMsg(i, buildMessage("KEEPALIVE"));
 					}
 				}
-				for(int i = 0; i < 5; i++) {
+				for(int i = 0; i < numProcs; i++) {
 					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
 					if(sinceLastKeepAlive.get(i) > 2 && livingProcs[i] == true) {
 						livingProcs[i] = false;
@@ -237,7 +239,7 @@ public class Process extends Thread {
 	}
 	
 	private void broadcast(String message) throws IOException {
-		for(int i=0; i < 5; i++) {
+		for(int i=0; i < numProcs; i++) {
 			if(livingProcs[i]){
 				if(currentCoord == 4) {
 					System.out.println("killCountdown: " + killCountdown);
@@ -301,7 +303,7 @@ public class Process extends Thread {
 		System.out.println("------------");
 		System.out.println(this.id + ":" + command);
 		stage = 1;
-		for(int i = 0; i < 5; i++) {
+		for(int i = 0; i < numProcs; i++) {
 			waitingOn[i] = true;
 		}
 		amCoord = true;
@@ -314,7 +316,7 @@ public class Process extends Thread {
 	private void sendPreCommit() throws IOException {
 		stage = 2;
 		//log("PRECOMMIT");
-		for(int i = 0; i < 5; i++) {
+		for(int i = 0; i < numProcs; i++) {
 			waitingOn[i] = true;
 		}
 		broadcast(buildMessage("PRECOMMIT"));
@@ -557,7 +559,7 @@ public class Process extends Thread {
 			playlist.remove(arg);
 		}
 		else if(command.startsWith("EDIT")) {
-			String[] args = command.substring(5,command.length()-1).split(",");
+			String[] args = command.substring(numProcs,command.length()-1).split(",");
 			playlist.replace(args[0], args[2]);
 		}
 		isTransactionOn = false;
@@ -586,10 +588,10 @@ public class Process extends Thread {
 	}
 	
 	private void initiateElection() {
-		Integer newCoord = currentCoord % 5;
+		Integer newCoord = currentCoord % numProcs;
 		while(livingProcs[newCoord] == false) {
 			newCoord = newCoord + 1;
-			newCoord = newCoord % 5;
+			newCoord = newCoord % numProcs;
 			//System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
 		}
 		network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
@@ -603,7 +605,7 @@ public class Process extends Thread {
 		stage = 0;
 		currentCoord = this.id;
 		broadcast(buildMessage("STATE_REQ_COORD:" + transNum));
-		for(int i = 0; i < 5; i++) {
+		for(int i = 0; i < numProcs; i++) {
 			if(livingProcs[i]) {
 				waitingOn[i] = true;
 			}
@@ -629,14 +631,14 @@ public class Process extends Thread {
 	}
 	
 	private void clearWaitingOn() {
-		for(int i = 0; i < 5; i++) {
+		for(int i = 0; i < numProcs; i++) {
 			waitingOn[i] = false;
 		}
 	}
 	
 	private boolean amWaiting() {
 		boolean resp = false;
-		for(int i = 0; i < 5; i++) {
+		for(int i = 0; i < numProcs; i++) {
 			if(waitingOn[i] == true && livingProcs[i] == true){
 				resp = true;
 			}
@@ -687,7 +689,7 @@ public class Process extends Thread {
 					System.out.println(Arrays.toString(lineArray));
 					transCounter = Integer.parseInt(lineArray[0]);
 					broadcast(buildMessage("STATE_REQ:" + transCounter));
-					for(int i = 0; i < 5; i++) {
+					for(int i = 0; i < numProcs; i++) {
 						waitingOn[i] = true;
 					}
 					waiting = true;

@@ -17,6 +17,7 @@ public class Controller {
 	NetController masterNetwork;
 	Config configFile;
 	ArrayList<Process> idToProc; // i-th position corresponds to i-th process
+	Integer numProcs;
 	Integer currLeaderIndex;
 	Process currLeader;
 	Integer lastKilledIndex;
@@ -24,14 +25,15 @@ public class Controller {
 	ArrayList<String> instructions;
 	Boolean[] living;
 	
-	public Controller(String instructionsPath) throws FileNotFoundException, IOException {
+	public Controller(String instructionsPath, int numProcs) throws FileNotFoundException, IOException  {
 		idToProc = new ArrayList<Process>();
-		for(int i = 0; i < 5; i++) {
+		
+		for(int i = 0; i < numProcs; i++) {
 			Config config = new Config("properties_p" + i + ".txt");
-			idToProc.add(new Process(i, config));
+			idToProc.add(new Process(i, config, numProcs));
 		}
 		
-		this.living = new Boolean[5];
+		this.living = new Boolean[numProcs];
 		Arrays.fill(this.living, Boolean.TRUE);
 		
 		
@@ -136,21 +138,21 @@ public class Controller {
 		if(idToProc.get(id).alive == null || idToProc.get(id).alive == false) {
 			System.out.println("Revive " + id);
 			Config config = new Config("properties_p" + id + ".txt");
-			idToProc.set(id, new Process(id,config));
+			idToProc.set(id, new Process(id,config, numProcs));
 			idToProc.get(id).start();
 		}
 	}
 	
 	public void reviveLast() throws FileNotFoundException, IOException {
 		Config config = new Config("properties_p" + lastKilledIndex + ".txt");
-		idToProc.set(lastKilledIndex, new Process(lastKilledIndex, config));
+		idToProc.set(lastKilledIndex, new Process(lastKilledIndex, config, numProcs));
 		idToProc.get(lastKilledIndex).start();
 	}
 	
 	public void reviveAll() throws FileNotFoundException, IOException {
 		for (int i = 0; i < idToProc.size(); i++) {
 			Config config = new Config("properties_p" + i+ ".txt");
-			idToProc.set(i, new Process(i, config));
+			idToProc.set(i, new Process(i, config, numProcs));
 			idToProc.get(i).start();
 		}
 	}
@@ -182,7 +184,8 @@ public class Controller {
 	}
 	
 	public static void main(String[] args) throws FileNotFoundException, IOException, InterruptedException {
-		Controller mainController = new Controller("instructions_test.txt");
+		Integer desiredNumProcs = 5;
+		Controller mainController = new Controller("instructions_test.txt", desiredNumProcs);
 		for(Process p : mainController.idToProc) {
 			p.start();
 		}
