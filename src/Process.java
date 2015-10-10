@@ -214,6 +214,9 @@ public class Process extends Thread {
 			}
 			if(time < System.currentTimeMillis()/1000 && !inRecovery && livingProcs[id]) {
 				time++;
+				if(true) {
+					System.out.println(this.id + ":" + Arrays.toString(livingProcs));
+				}
 				for(int i=0; i < numProcs; i++) {
 					if(livingProcs[i]){
 						network.sendMsg(i, buildMessage("KEEPALIVE"));
@@ -221,8 +224,9 @@ public class Process extends Thread {
 				}
 				for(int i = 0; i < numProcs; i++) {
 					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-					if(sinceLastKeepAlive.get(i) > 3 && livingProcs[i] == true) {
+					if(sinceLastKeepAlive.get(i) > 2 && livingProcs[i] == true) {
 						livingProcs[i] = false;
+						System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
 						if(currentCoord == i) {
 							try {
 								initiateElection();

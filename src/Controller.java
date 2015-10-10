@@ -14,10 +14,11 @@ import java.util.HashMap;
  *
  */
 public class Controller {
+	public static Integer numProcs;
+	
 	NetController masterNetwork;
 	Config configFile;
 	ArrayList<Process> idToProc; // i-th position corresponds to i-th process
-	Integer numProcs;
 	Integer currLeaderIndex;
 	Process currLeader;
 	Integer lastKilledIndex;
@@ -25,9 +26,9 @@ public class Controller {
 	ArrayList<String> instructions;
 	Boolean[] living;
 	
-	public Controller(String instructionsPath, int numProcs) throws FileNotFoundException, IOException  {
+	public Controller(String instructionsPath, int desirednumProcs) throws FileNotFoundException, IOException  {
 		idToProc = new ArrayList<Process>();
-		
+		numProcs = desirednumProcs;
 		for(int i = 0; i < numProcs; i++) {
 			Config config = new Config("properties_p" + i + ".txt");
 			idToProc.add(new Process(i, config, numProcs));
