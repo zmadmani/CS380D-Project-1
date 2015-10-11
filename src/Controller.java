@@ -67,14 +67,14 @@ public class Controller {
 			this.currLeader = workingProc;
 						
 			if(i == 0) {
-				int PROC = 1;
-				int numMsg = 8;
-				kill(PROC);
-				//partialKill(1,2);
+				int PROC = 0;
+				int numMsg = 9;
+				partialKill(PROC,numMsg);
+				partialKill(1,3);
 				workingProc.sendVoteReq(command,i);
 				Thread.sleep(10 * 1000);
 				revive(PROC);
-				//revive(1);
+				revive(1);
 				Thread.sleep(4 * 1000);
 			}
 			else {

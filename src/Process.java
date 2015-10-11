@@ -46,6 +46,7 @@ public class Process extends Thread {
 	private ArrayList<Integer> needStateResp;
 	private Integer collectedState;
 	private Boolean[] waitingOn;
+	int numYes;
 		
 	public Process(Integer id, Config configFile, Integer desiredNumProcs) throws IOException {
 		this.id = id;
@@ -56,6 +57,7 @@ public class Process extends Thread {
 		currentCoord = -1;
 		transCounter = 0;
 		amMessaging = true;
+		numYes = 0;
 		stopCountdown = -1; //-1 means not counting
 		killCountdown = -1; //-1 means not counting
 		isTransactionOn = false;
@@ -85,7 +87,6 @@ public class Process extends Thread {
 	
 	public void run() {
 		List<String> messages = new ArrayList<String>();
-		int numYes = 0;
 		while(alive){
 			messages = network.getReceivedMsgs();
 			for(String message : messages) {
@@ -248,7 +249,7 @@ public class Process extends Thread {
 					upLogWrite.newLine();
 				} catch (IOException e1) {
 					// TODO Auto-generated catch block
-					e1.printStackTrace();
+					//e1.printStackTrace();
 				}
 			}
 		}
@@ -293,11 +294,11 @@ public class Process extends Thread {
 		}
 		
 		if(killCountdown > 0) {
-			System.out.println("KILLCOUNTDOWN: " + killCountdown);
+			//System.out.println(this.id + ":KILLCOUNTDOWN: " + killCountdown);
 			killCountdown--;
 			return_stmt = true;
 		}
-		else if(killCountdown == 0) {
+		else if(killCountdown == 0 && alive) {
 			shutdown();
 			return_stmt = false;
 		}
@@ -329,6 +330,7 @@ public class Process extends Thread {
 		amCoord = true;
 		currentCoord = this.id;
 		transCounter = transNum;
+		numYes = 0;
 		log(transCounter + ";VOTE_REQ:" + command);
 		broadcast(buildMessage(transCounter + ":VOTE_REQ:" + command));
 	}
@@ -642,6 +644,7 @@ public class Process extends Thread {
 		this.isTransactionOn = true;
 		System.out.println(this.id + ":ELECTED COORDINATOR");
 		stage = 0;
+		numYes = 0;
 		currentCoord = this.id;
 		broadcast(buildMessage("STATE_REQ_COORD:" + transCounter));
 		for(int i = 0; i < numProcs; i++) {
