@@ -68,13 +68,13 @@ public class Controller {
 						
 			if(i == 0) {
 				int PROC = 0;
-				int numMsg = 9;
+				int numMsg = 8;
 				partialKill(PROC,numMsg);
-				partialKill(1,3);
+				//partialKill(1,3);
 				workingProc.sendVoteReq(command,i);
 				Thread.sleep(10 * 1000);
 				revive(PROC);
-				revive(1);
+				//revive(1);
 				Thread.sleep(4 * 1000);
 			}
 			else {
@@ -86,7 +86,7 @@ public class Controller {
 			while(readyProcesses < 5) {
 				readyProcesses = 0;
 				for(Process p: idToProc) {
-					if(p.getTransactionState() == false) {
+					if(p.getTransactionState() == false && p.getRecoveryState() == false) {
 						readyProcesses++;
 					}
 				}

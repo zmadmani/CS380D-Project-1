@@ -11,6 +11,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Process
@@ -19,6 +20,7 @@ import java.util.List;
  */
 public class Process extends Thread {
 	public static Integer TIMEOUT = 3;
+	public static Integer STATE_REQ_TIMEOUT = 3;
 	
 	private NetController network;
 	private int numProcs;
@@ -46,7 +48,9 @@ public class Process extends Thread {
 	private ArrayList<Integer> needStateResp;
 	private Integer collectedState;
 	private Boolean[] waitingOn;
-	int numYes;
+	private int numYes;
+	private int sinceLastStateReq;
+	private HashMap<Integer, Boolean[]> R;
 		
 	public Process(Integer id, Config configFile, Integer desiredNumProcs) throws IOException {
 		this.id = id;
@@ -60,6 +64,7 @@ public class Process extends Thread {
 		numYes = 0;
 		stopCountdown = -1; //-1 means not counting
 		killCountdown = -1; //-1 means not counting
+		sinceLastStateReq = -1;
 		isTransactionOn = false;
 		stage = 0; //0 --> nothing | 1 --> vote_req | 2 --> precommit //symmetric for both coord and participant
 		playlist = new HashMap<String, String>();
@@ -79,6 +84,10 @@ public class Process extends Thread {
 		inRecovery = false;
 		logWrite = new BufferedWriter(new FileWriter(logName, true));
 		upLogWrite = new BufferedWriter(new FileWriter(upLogName, true));
+		upLogWrite.write(Arrays.toString(livingProcs));
+		upLogWrite.newLine();
+		upLogWrite.flush();
+		R = new HashMap<Integer, Boolean[]>();
 		File f = new File(logName);
 		if (f.exists()) {
 			recover();
@@ -90,6 +99,9 @@ public class Process extends Thread {
 		while(alive){
 			messages = network.getReceivedMsgs();
 			for(String message : messages) {
+				if(!message.contains("KEEPALIVE")) {
+					//System.out.println(this.id + ":RECEIVED: " + message);
+				}
 				if(!message.contains("KEEPALIVE") && !message.contains("STATE_REQ") && !message.contains("STATE_RESP")) {
 					Integer sender = getSender(message);
 				}
@@ -122,6 +134,14 @@ public class Process extends Thread {
 				else if(message.contains("STATE_REQ:") && !inRecovery) {
 					try {
 						helpOthers(message);
+					} catch (IOException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
+				else if(message.contains("STATE_REQ:") && inRecovery) {
+					try {
+						coordinatedRecovery(message);
 					} catch (IOException e) {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
@@ -218,38 +238,53 @@ public class Process extends Thread {
 					}
 				}
 			}
-			if(time < System.currentTimeMillis()/1000 && !inRecovery && livingProcs[id]) {
+			if(time < System.currentTimeMillis()/1000 && livingProcs[id]) {
 				time++;
-				if(false) {
-					System.out.println(this.id + ":" + Arrays.toString(livingProcs));
-				}
-				for(int i=0; i < numProcs; i++) {
-					if(livingProcs[i]){
-						network.sendMsg(i, buildMessage("KEEPALIVE"));
+				if(!inRecovery) {
+					//System.out.println(this.id + ":" + Arrays.toString(livingProcs));
+					for(int i=0; i < numProcs; i++) {
+						if(livingProcs[i]){
+							network.sendMsg(i, buildMessage("KEEPALIVE"));
+						}
 					}
-				}
-				for(int i = 0; i < numProcs; i++) {
-					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-					if(sinceLastKeepAlive.get(i) > 3 && livingProcs[i] == true) {
-						livingProcs[i] = false;
-						//System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
-						if(currentCoord == i) {
-							try {
-								initiateElection();
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
+					for(int i = 0; i < numProcs; i++) {
+						sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
+						if(sinceLastKeepAlive.get(i) > TIMEOUT && livingProcs[i] == true) {
+							livingProcs[i] = false;
+							//System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
+							if(currentCoord == i) {
+								try {
+									initiateElection();
+								} catch (IOException e) {
+									// TODO Auto-generated catch block
+									e.printStackTrace();
+								}
 							}
 						}
 					}
+					// log up set
+					try {
+						upLogWrite.write(Arrays.toString(livingProcs));
+						upLogWrite.newLine();
+						upLogWrite.flush();
+					} catch (IOException e1) {
+						// TODO Auto-generated catch block
+						//e1.printStackTrace();
+					}
 				}
-				// log up set
-				try {
-					upLogWrite.write(Arrays.toString(livingProcs));
-					upLogWrite.newLine();
-				} catch (IOException e1) {
-					// TODO Auto-generated catch block
-					//e1.printStackTrace();
+				else {
+					sinceLastStateReq++;
+					if(sinceLastStateReq > STATE_REQ_TIMEOUT){
+						try {
+							String lastLine = Arrays.toString(livingProcs);
+							lastLine = lastLine.substring(1,lastLine.length()-1);
+							broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + lastLine));
+							sinceLastStateReq = 0;
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+					}
 				}
 			}
 		}
@@ -323,10 +358,11 @@ public class Process extends Thread {
 		this.isTransactionOn = true;
 		System.out.println("------------");
 		System.out.println(this.id + ":" + command);
-		stage = 1;
 		for(int i = 0; i < numProcs; i++) {
 			waitingOn[i] = true;
+			livingProcs[i] = true;
 		}
+		stage = 1;
 		amCoord = true;
 		currentCoord = this.id;
 		transCounter = transNum;
@@ -447,7 +483,9 @@ public class Process extends Thread {
 		int transNum = Integer.parseInt(message.split(":")[2]);
 		//System.out.println(this.id + ":" + transCounter + ":" + isTransactionOn);
 		if(transCounter == transNum && isTransactionOn) {
-			needStateResp.add(getSender(message));
+			if(!needStateResp.contains(getSender(message))) {
+				needStateResp.add(getSender(message));
+			}
 		}
 		else {
 			BufferedReader logRead = new BufferedReader(new FileReader(logName));
@@ -617,6 +655,10 @@ public class Process extends Thread {
 		return this.isTransactionOn;
 	}
 	
+	public Boolean getRecoveryState() {
+		return this.inRecovery;
+	}
+	
 	private void keepalive(String message) {
 		//System.out.println(message);
 		int sender = getSender(message);
@@ -734,6 +776,50 @@ public class Process extends Thread {
 		}
 	}
 	
+	private void coordinatedRecovery(String message) throws IOException {
+		int sender = getSender(message);
+		if(R.containsKey(sender)) {
+			String otherUpset = message.split(":")[3];
+			otherUpset = otherUpset.substring(1, otherUpset.length()-1);
+			String[] tempArr = otherUpset.split(",");
+			Boolean[] otherUpsetArr = new Boolean[tempArr.length];
+			for(int i = 0; i < tempArr.length; i++) {
+				if(tempArr[i].equals("true")) {
+					otherUpsetArr[i] = true;
+				}
+				else {
+					otherUpsetArr[i] = false;
+				}
+			}
+			R.put(sender, otherUpsetArr);
+			
+			boolean nullExists = false;
+			for(Integer proc: R.keySet()) {
+				if(R.get(proc) == null) {
+					nullExists = true;
+					break;
+				}
+			}
+			if(nullExists == false) {
+				totalFailureRecovery();
+			}
+		}
+	}
+	
+	public void totalFailureRecovery() throws IOException {
+		Boolean[] intersection = new Boolean[R.size()];
+		Arrays.fill(intersection, Boolean.TRUE);
+		for(Map.Entry<Integer, Boolean[]> rEntry : R.entrySet()) {
+			intersection = intersect(intersection, rEntry.getValue());
+		}
+		if(intersection[id] == true) {
+			livingProcs = intersection;
+			isTransactionOn = true;
+			inRecovery = false;
+			initiateElection();
+		}
+	}
+	
 	public void recover() throws IOException {
 		BufferedReader logRead = new BufferedReader(new FileReader(logName));
 		BufferedReader upLogRead = new BufferedReader(new FileReader(upLogName));
@@ -760,7 +846,28 @@ public class Process extends Thread {
 					String[] lineArray = line.split(";");
 					System.out.println(Arrays.toString(lineArray));
 					transCounter = Integer.parseInt(lineArray[0]);
-					broadcast(buildMessage("STATE_REQ:" + transCounter));
+					String lastLine = "";
+					String upLine = "";
+					while ((upLine = upLogRead.readLine()) != null) 
+					{
+						lastLine = upLine;
+					}
+					lastLine = lastLine.substring(1,lastLine.length()-1);
+					String[] upArr = lastLine.split(",");
+					System.out.println(this.id + ":LASTLINE = " + Arrays.toString(upArr));
+					for(int i = 0; i < upArr.length; i++) {
+						if(upArr[i].contains("true")) {
+							R.put(i, null);
+							livingProcs[i] = true;
+						}
+						else {
+							livingProcs[i] = false;
+						}
+					}
+					System.out.println(this.id + ":LASTLINE = " + Arrays.toString(livingProcs));
+					broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + Arrays.toString(livingProcs)));
+					
+					sinceLastStateReq = 0;
 					for(int i = 0; i < numProcs; i++) {
 						waitingOn[i] = true;
 					}
