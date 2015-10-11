@@ -59,23 +59,22 @@ public class Controller {
 		int i = 0;
 		for (String instr : instructions) {
 			String[] parsedInstr = instr.split(":");
-			Integer process = Integer.parseInt(parsedInstr[0]);
-			String command = parsedInstr[1];
+			String command = parsedInstr[0];
 			
-			Process workingProc = this.idToProc.get(process);
+			Process workingProc = this.idToProc.get(0);
 			
-			this.currLeaderIndex = process;
+			this.currLeaderIndex = 0;
 			this.currLeader = workingProc;
 						
-			if(currLeaderIndex == 2) {
-				int PROC = 2;
-				int numMsg = 7;
-				partialKill(PROC,numMsg);
-				partialKill(3,2);
+			if(i == 0) {
+				int PROC = 1;
+				int numMsg = 8;
+				kill(PROC);
+				//partialKill(1,2);
 				workingProc.sendVoteReq(command,i);
 				Thread.sleep(10 * 1000);
 				revive(PROC);
-				revive(3);
+				//revive(1);
 				Thread.sleep(4 * 1000);
 			}
 			else {

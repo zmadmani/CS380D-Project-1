@@ -21,7 +21,7 @@ public class Process extends Thread {
 	public static Integer TIMEOUT = 3;
 	
 	private NetController network;
-	private Integer numProcs;
+	private int numProcs;
 	private Integer id;
 	private Integer transCounter;
 	private Boolean amCoord;
@@ -40,15 +40,16 @@ public class Process extends Thread {
 	private String command;
 	private String logName;
 	private BufferedWriter logWrite;
+	private BufferedWriter upLogWrite;
 	private Boolean inRecovery;
 	private ArrayList<Integer> needStateResp;
 	private Integer collectedState;
 	private Boolean[] waitingOn;
 		
-	public Process(Integer id, Config configFile, Integer numProcs) throws IOException {
+	public Process(Integer id, Config configFile, Integer desiredNumProcs) throws IOException {
 		this.id = id;
 		network = new NetController(configFile);
-		this.numProcs = numProcs;
+		this.numProcs = desiredNumProcs;
 		alive = true;
 		amCoord = false;
 		currentCoord = -1;
@@ -61,16 +62,17 @@ public class Process extends Thread {
 		playlist = new HashMap<String, String>();
 		time = System.currentTimeMillis()/1000;
 		collectedState = 0; // 1 --> undecided | 2 --> precommit
-		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(numProcs, 0));
+		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(this.numProcs, 0));
 		outgoingMessages = new LinkedList<String[]>();
 		needStateResp = new ArrayList<Integer>();
 		livingProcs = new Boolean[numProcs];
+		waitingOn = new Boolean[numProcs];
 		for(int i = 0; i < numProcs; i++){
 			livingProcs[i] = true;
+			waitingOn[i] = true;
 		}
 		logName = "log_p" + this.id + ".txt";
 		inRecovery = false;
-		waitingOn = new Boolean[numProcs];
 		logWrite = new BufferedWriter(new FileWriter(logName, true));
 		File f = new File(logName);
 		if (f.exists()) {
@@ -214,7 +216,7 @@ public class Process extends Thread {
 			}
 			if(time < System.currentTimeMillis()/1000 && !inRecovery && livingProcs[id]) {
 				time++;
-				if(true) {
+				if(false) {
 					System.out.println(this.id + ":" + Arrays.toString(livingProcs));
 				}
 				for(int i=0; i < numProcs; i++) {
@@ -224,9 +226,9 @@ public class Process extends Thread {
 				}
 				for(int i = 0; i < numProcs; i++) {
 					sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-					if(sinceLastKeepAlive.get(i) > 2 && livingProcs[i] == true) {
+					if(sinceLastKeepAlive.get(i) > 3 && livingProcs[i] == true) {
 						livingProcs[i] = false;
-						System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
+						//System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
 						if(currentCoord == i) {
 							try {
 								initiateElection();
@@ -347,9 +349,19 @@ public class Process extends Thread {
 	}
 	
 	private void newCoord(String message) throws IOException {
-		//System.out.println(this.id + ":GOT STATE_REQ_COORD from " + getSender(message));
+		System.out.println(this.id + ":GOT STATE_REQ_COORD from " + getSender(message) + " while currentCoord = " + currentCoord);
 		int transNum = Integer.parseInt(message.split(":")[2]);
-		currentCoord = getSender(message);
+		int sender = getSender(message);
+		if(currentCoord < sender) {
+			livingProcs[currentCoord] = false;
+			currentCoord = sender;
+		}
+		else if(currentCoord == sender) {
+			currentCoord = sender;
+		}
+		else {
+			return;
+		}
 		isTransactionOn = true;
 		BufferedReader logRead = new BufferedReader(new FileReader(logName));
 		String response = logRead.readLine();
@@ -382,7 +394,6 @@ public class Process extends Thread {
 			}
 		}
 		System.out.println(this.id + ":HELPING COORD: " + answer);
-		Integer sender = getSender(message);
 		//System.out.println("SENDING STATE TO " + sender + " with message: " + answer);
 		network.sendMsg(sender, buildMessage(answer));
 		logRead.close();
@@ -600,18 +611,16 @@ public class Process extends Thread {
 	
 	private void initiateElection() throws IOException {
 		System.out.println(this.id + ":STARTING ELECTION");
-		Integer newCoord = currentCoord % numProcs;
-		while(livingProcs[newCoord] == false) {
-			newCoord = newCoord + 1;
-			newCoord = newCoord % numProcs;
-			System.out.println(this.id + ":ELECTED: " + newCoord + "| IS ALIVE? " + livingProcs[newCoord]);
+		int i = 0;
+		while(i < numProcs-1 && livingProcs[i] == false) {
+			i++;
 		}
-		currentCoord = newCoord;
+		currentCoord = i;
 		if(shouldMessage()) {
-			network.sendMsg(newCoord, buildMessage("URELECTED:" + transCounter));
+			network.sendMsg(i, buildMessage("URELECTED:" + transCounter));
 		}
 		else {
-			String[] temp = {buildMessage("URELECTED:" + transCounter),Integer.toString(newCoord)};
+			String[] temp = {buildMessage("URELECTED:" + transCounter),Integer.toString(i)};
 			outgoingMessages.add(temp);
 		}
 	}
