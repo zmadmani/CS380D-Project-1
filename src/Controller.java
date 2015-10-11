@@ -67,15 +67,23 @@ public class Controller {
 			this.currLeader = workingProc;
 						
 			if(i == 0) {
-				int PROC = 0;
-				int numMsg = 8;
-				partialKill(PROC,numMsg);
-				//partialKill(1,3);
+				partialKill(0,6);
+				partialKill(1,2);
+				partialKill(2,3);
+				partialKill(3,4);
+				partialKill(4,5);
 				workingProc.sendVoteReq(command,i);
-				Thread.sleep(10 * 1000);
-				revive(PROC);
-				//revive(1);
-				Thread.sleep(4 * 1000);
+				Thread.sleep(30 * 1000);
+				revive(4);
+				Thread.sleep(5 * 1000);
+				revive(1);
+				Thread.sleep(5 * 1000);
+				revive(2);
+				Thread.sleep(5 * 1000);
+				revive(3);
+				Thread.sleep(5 * 1000);
+				revive(0);
+				Thread.sleep(5 * 1000);
 			}
 			else {
 				workingProc.sendVoteReq(command,i);	

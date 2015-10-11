@@ -23,7 +23,8 @@ public class Config {
 	 */
 	public Config(String filename) throws FileNotFoundException, IOException {
 		logger = Logger.getLogger("NetFramework");
-
+		logger.setUseParentHandlers(false);
+		
 		Properties prop = new Properties();
 		prop.load(new FileInputStream(filename));
 		numProcesses = loadInt(prop,"NumProcesses");

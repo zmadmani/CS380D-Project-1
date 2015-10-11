@@ -77,20 +77,24 @@ public class Process extends Thread {
 		waitingOn = new Boolean[numProcs];
 		for(int i = 0; i < numProcs; i++){
 			livingProcs[i] = true;
-			waitingOn[i] = true;
+			waitingOn[i] = false;
 		}
 		logName = "log_p" + this.id + ".txt";
 		upLogName = "upLog_p" + this.id + ".txt";
 		inRecovery = false;
-		logWrite = new BufferedWriter(new FileWriter(logName, true));
-		upLogWrite = new BufferedWriter(new FileWriter(upLogName, true));
-		upLogWrite.write(Arrays.toString(livingProcs));
-		upLogWrite.newLine();
-		upLogWrite.flush();
 		R = new HashMap<Integer, Boolean[]>();
 		File f = new File(logName);
 		if (f.exists()) {
+			logWrite = new BufferedWriter(new FileWriter(logName, true));
+			upLogWrite = new BufferedWriter(new FileWriter(upLogName, true));
 			recover();
+		}
+		else {
+			logWrite = new BufferedWriter(new FileWriter(logName, true));
+			upLogWrite = new BufferedWriter(new FileWriter(upLogName, true));
+			upLogWrite.write(Arrays.toString(livingProcs));
+			upLogWrite.newLine();
+			upLogWrite.flush();
 		}
 	}
 	
@@ -238,7 +242,7 @@ public class Process extends Thread {
 					}
 				}
 			}
-			if(time < System.currentTimeMillis()/1000 && livingProcs[id]) {
+			if(time < System.currentTimeMillis()/1000) {//took out && livingProcs[id]
 				time++;
 				if(!inRecovery) {
 					//System.out.println(this.id + ":" + Arrays.toString(livingProcs));
@@ -249,8 +253,9 @@ public class Process extends Thread {
 					}
 					for(int i = 0; i < numProcs; i++) {
 						sinceLastKeepAlive.set(i, sinceLastKeepAlive.get(i) + 1);
-						if(sinceLastKeepAlive.get(i) > TIMEOUT && livingProcs[i] == true) {
+						if(sinceLastKeepAlive.get(i) > TIMEOUT && livingProcs[i] && i != id) {
 							livingProcs[i] = false;
+							waitingOn[i] = false;
 							//System.out.println(this.id + ":TIMING OUT PROC " + i + "| COORD IS " + currentCoord);
 							if(currentCoord == i) {
 								try {
@@ -259,6 +264,13 @@ public class Process extends Thread {
 									// TODO Auto-generated catch block
 									e.printStackTrace();
 								}
+							}
+						}
+					}
+					if(amCoord && amWaiting()) {
+						for(int i = 0; i < numProcs; i++) {
+							if(waitingOn[i]) {
+								network.sendMsg(i, buildMessage("STATE_REQ_COORD:" + transCounter));
 							}
 						}
 					}
@@ -273,12 +285,11 @@ public class Process extends Thread {
 					}
 				}
 				else {
+					//System.out.println(this.id + ":IN RECOVERY");
 					sinceLastStateReq++;
 					if(sinceLastStateReq > STATE_REQ_TIMEOUT){
 						try {
-							String lastLine = Arrays.toString(livingProcs);
-							lastLine = lastLine.substring(1,lastLine.length()-1);
-							broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + lastLine));
+							broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + Arrays.toString(livingProcs)));
 							sinceLastStateReq = 0;
 						} catch (IOException e) {
 							// TODO Auto-generated catch block
@@ -359,7 +370,7 @@ public class Process extends Thread {
 		System.out.println("------------");
 		System.out.println(this.id + ":" + command);
 		for(int i = 0; i < numProcs; i++) {
-			waitingOn[i] = true;
+			//waitingOn[i] = true;
 			livingProcs[i] = true;
 		}
 		stage = 1;
@@ -374,9 +385,9 @@ public class Process extends Thread {
 	private void sendPreCommit() throws IOException {
 		stage = 2;
 		//log("PRECOMMIT");
-		for(int i = 0; i < numProcs; i++) {
-			waitingOn[i] = true;
-		}
+//		for(int i = 0; i < numProcs; i++) {
+//			waitingOn[i] = true;
+//		}
 		broadcast(buildMessage("PRECOMMIT"));
 	}
 	
@@ -554,7 +565,7 @@ public class Process extends Thread {
 			stage = 1;
 		}
 		Integer vote = 1;
-		waitingOn[currentCoord] = true;
+		//waitingOn[currentCoord] = true;
 		command = message.split(":")[3];
 				
 		if(command.startsWith("ADD")) {
@@ -616,7 +627,7 @@ public class Process extends Thread {
 			System.out.println(this.id + ":ACK");
 			log("PRECOMMIT");
 			network.sendMsg(sender, buildMessage("ACK"));
-			waitingOn[currentCoord] = true;
+			//waitingOn[currentCoord] = true;
 		}
 		else {
 			String[] temp = {message,Integer.toString(sender)};
@@ -667,7 +678,6 @@ public class Process extends Thread {
 	}
 	
 	private void initiateElection() throws IOException {
-		System.out.println(this.id + ":STARTING ELECTION");
 		int i = 0;
 		while(i < numProcs-1 && livingProcs[i] == false) {
 			i++;
@@ -675,6 +685,8 @@ public class Process extends Thread {
 		currentCoord = i;
 		if(shouldMessage()) {
 			network.sendMsg(i, buildMessage("URELECTED:" + transCounter));
+			System.out.println(this.id + ":STARTING ELECTION FOR " + i);
+			//System.out.println(this.id + ":LIVING_PROCS:" + Arrays.toString(livingProcs));
 		}
 		else {
 			String[] temp = {buildMessage("URELECTED:" + transCounter),Integer.toString(i)};
@@ -744,7 +756,7 @@ public class Process extends Thread {
 	private Boolean[] intersect(Boolean[] arr1, Boolean[] arr2) {
 		Boolean[] result = new Boolean[arr1.length];
 		for(int i = 0; i < arr1.length; i++) {
-			result[i] = arr1[i] & arr2[i];
+			result[i] = arr1[i] && arr2[i];
 		}
 		return result;
 	}
@@ -784,7 +796,7 @@ public class Process extends Thread {
 			String[] tempArr = otherUpset.split(",");
 			Boolean[] otherUpsetArr = new Boolean[tempArr.length];
 			for(int i = 0; i < tempArr.length; i++) {
-				if(tempArr[i].equals("true")) {
+				if(tempArr[i].contains("true")) {
 					otherUpsetArr[i] = true;
 				}
 				else {
@@ -792,6 +804,8 @@ public class Process extends Thread {
 				}
 			}
 			R.put(sender, otherUpsetArr);
+			//System.out.println(this.id + ":ADDING TO R: {" + sender + "," + Arrays.toString(otherUpsetArr) + "}");
+			
 			
 			boolean nullExists = false;
 			for(Integer proc: R.keySet()) {
@@ -807,13 +821,17 @@ public class Process extends Thread {
 	}
 	
 	public void totalFailureRecovery() throws IOException {
-		Boolean[] intersection = new Boolean[R.size()];
+		Boolean[] intersection = new Boolean[numProcs];
 		Arrays.fill(intersection, Boolean.TRUE);
 		for(Map.Entry<Integer, Boolean[]> rEntry : R.entrySet()) {
 			intersection = intersect(intersection, rEntry.getValue());
 		}
+		System.out.println(this.id + ":INTERSECTION:" + Arrays.toString(intersection));
 		if(intersection[id] == true) {
 			livingProcs = intersection;
+			String lastLine = Arrays.toString(livingProcs);
+			lastLine = lastLine.substring(1,lastLine.length()-1);
+			broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + lastLine));
 			isTransactionOn = true;
 			inRecovery = false;
 			initiateElection();
@@ -844,7 +862,7 @@ public class Process extends Thread {
 			else {
 				if(line.endsWith("YES;") || line.contains("PRECOMMIT")) {
 					String[] lineArray = line.split(";");
-					System.out.println(Arrays.toString(lineArray));
+					//System.out.println(Arrays.toString(lineArray));
 					transCounter = Integer.parseInt(lineArray[0]);
 					String lastLine = "";
 					String upLine = "";
@@ -854,7 +872,6 @@ public class Process extends Thread {
 					}
 					lastLine = lastLine.substring(1,lastLine.length()-1);
 					String[] upArr = lastLine.split(",");
-					System.out.println(this.id + ":LASTLINE = " + Arrays.toString(upArr));
 					for(int i = 0; i < upArr.length; i++) {
 						if(upArr[i].contains("true")) {
 							R.put(i, null);
@@ -864,13 +881,16 @@ public class Process extends Thread {
 							livingProcs[i] = false;
 						}
 					}
-					System.out.println(this.id + ":LASTLINE = " + Arrays.toString(livingProcs));
+					//System.out.println(this.id + ":R:" + R.toString());
+					//System.out.println(this.id + ":LASTLINE = " + Arrays.toString(livingProcs));
+					sinceLastStateReq = 0;
 					broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + Arrays.toString(livingProcs)));
 					
-					sinceLastStateReq = 0;
-					for(int i = 0; i < numProcs; i++) {
-						waitingOn[i] = true;
-					}
+//					for(int i = 0; i < numProcs; i++) {
+//						if(livingProcs[i]) {
+//							waitingOn[i] = true;
+//						}
+//					}
 					waiting = true;
 				}
 				else if(line.contains("VOTE_REQ")) {
