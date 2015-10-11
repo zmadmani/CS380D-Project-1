@@ -51,6 +51,7 @@ public class Process extends Thread {
 	private int numYes;
 	private int sinceLastStateReq;
 	private HashMap<Integer, Boolean[]> R;
+	private boolean rejectNextChange;
 		
 	public Process(Integer id, Config configFile, Integer desiredNumProcs) throws IOException {
 		this.id = id;
@@ -72,6 +73,7 @@ public class Process extends Thread {
 		collectedState = 0; // 1 --> undecided | 2 --> precommit
 		sinceLastKeepAlive = new ArrayList<Integer>(Collections.nCopies(this.numProcs, 0));
 		outgoingMessages = new LinkedList<String[]>();
+		rejectNextChange = false;
 		needStateResp = new ArrayList<Integer>();
 		livingProcs = new Boolean[numProcs];
 		waitingOn = new Boolean[numProcs];
@@ -567,18 +569,24 @@ public class Process extends Thread {
 		Integer vote = 1;
 		//waitingOn[currentCoord] = true;
 		command = message.split(":")[3];
-				
-		if(command.startsWith("ADD")) {
-			vote = 1;
+		
+		if(rejectNextChange) {
+			vote = 0;
+			rejectNextChange = false;
 		}
-		else if(command.startsWith("REMOVE")) {
-			if(playlist.get(command.split("[(]")[1].split("[)]")[0]) == null) {
-				vote = 0;
+		else {
+			if(command.startsWith("ADD")) {
+				vote = 1;
 			}
-		}
-		else if(command.startsWith("EDIT")) {
-			if(playlist.get(command.split("[(]")[1].split(",")[0]) == null) {
-				vote = 0;
+			else if(command.startsWith("REMOVE")) {
+				if(playlist.get(command.split("[(]")[1].split("[)]")[0]) == null) {
+					vote = 0;
+				}
+			}
+			else if(command.startsWith("EDIT")) {
+				if(playlist.get(command.split("[(]")[1].split(",")[0]) == null) {
+					vote = 0;
+				}
 			}
 		}
 		
@@ -747,6 +755,10 @@ public class Process extends Thread {
 		}
 	}
 	
+	public void rejectNextChange() {
+		rejectNextChange = true;
+	}
+	
 	private void clearWaitingOn() {
 		for(int i = 0; i < numProcs; i++) {
 			waitingOn[i] = false;
@@ -829,9 +841,7 @@ public class Process extends Thread {
 		System.out.println(this.id + ":INTERSECTION:" + Arrays.toString(intersection));
 		if(intersection[id] == true) {
 			livingProcs = intersection;
-			String lastLine = Arrays.toString(livingProcs);
-			lastLine = lastLine.substring(1,lastLine.length()-1);
-			broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + lastLine));
+			broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + Arrays.toString(livingProcs)));
 			isTransactionOn = true;
 			inRecovery = false;
 			initiateElection();
@@ -882,7 +892,7 @@ public class Process extends Thread {
 						}
 					}
 					//System.out.println(this.id + ":R:" + R.toString());
-					//System.out.println(this.id + ":LASTLINE = " + Arrays.toString(livingProcs));
+					System.out.println(this.id + ":LASTLINE = " + Arrays.toString(livingProcs));
 					sinceLastStateReq = 0;
 					broadcast(buildMessage("STATE_REQ:" + transCounter + ":" + Arrays.toString(livingProcs)));
 					

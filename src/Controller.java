@@ -65,25 +65,35 @@ public class Controller {
 			
 			this.currLeaderIndex = 0;
 			this.currLeader = workingProc;
-						
+			
+			/*
+			 * THIS IS THE TESTING AREA. ALL KILLS AND COMMANDS SHOULD BE PASSED
+			 * IN THROUGH THIS AREA. THE VARIABLE i REPRESENTS THE TRANSACTION NUMBER.
+			 * ALL TRANSACTIONS ARE SENT SERIALLY SO THAT NO TRANSACTION IS STARTED
+			 * UNTIL THE CURRENT ONE IS FINISHED.
+			*/
 			if(i == 0) {
-				partialKill(0,6);
-				partialKill(1,2);
-				partialKill(2,3);
-				partialKill(3,4);
-				partialKill(4,5);
+				//partialKill(0,4);
+				//partialKill(1,2);
+				partialKill(2,1);
+				//partialKill(3,4);
+				//partialKill(4,5);
 				workingProc.sendVoteReq(command,i);
-				Thread.sleep(30 * 1000);
-				revive(4);
-				Thread.sleep(5 * 1000);
+				Thread.sleep(15 * 1000);
+				//revive(4);
+				//Thread.sleep(5 * 1000);
+				revive(0);
+				//Thread.sleep(5 * 1000);
 				revive(1);
+				//Thread.sleep(5 * 1000);
+				//revive(3);
 				Thread.sleep(5 * 1000);
 				revive(2);
 				Thread.sleep(5 * 1000);
-				revive(3);
-				Thread.sleep(5 * 1000);
-				revive(0);
-				Thread.sleep(5 * 1000);
+			}
+			else if(i == 4) {
+				rejectNextChange(1);
+				workingProc.sendVoteReq(command, i);
 			}
 			else {
 				workingProc.sendVoteReq(command,i);	
@@ -91,7 +101,7 @@ public class Controller {
 			
 			int readyProcesses = 0;
 			Long resume = System.currentTimeMillis() + 10000;
-			while(readyProcesses < 5) {
+			while(readyProcesses < numProcs) {
 				readyProcesses = 0;
 				for(Process p: idToProc) {
 					if(p.getTransactionState() == false && p.getRecoveryState() == false) {
@@ -102,22 +112,6 @@ public class Controller {
 			Thread.sleep(500);
 			i++;
 		}
-	}
-	
-	public void initiateAdd(String songName, String URL, Process p) {
-		
-	}
-	
-	public void initiateRemove(String songName, Process p) {
-		
-	}
-	
-	public void initiateEdit(String songName, String URL, Process p) {
-		
-	}
-	
-	public void createProcesses() {
-		
 	}
 	
 	public void kill(Integer id) throws IOException {
@@ -182,21 +176,12 @@ public class Controller {
 		idToProc.get(id).partialKill(numMsgs);
 	}
 	
-	public void allClear() {
-		
-	}
-	
 	public void rejectNextChange(Integer id) {
-		
-	}
-	
-	
-	public void runCommmands() {
-		
+		idToProc.get(id).rejectNextChange();
 	}
 	
 	public static void main(String[] args) throws FileNotFoundException, IOException, InterruptedException {
-		Integer desiredNumProcs = 5;
+		Integer desiredNumProcs = 3;
 		Controller mainController = new Controller("instructions_test.txt", desiredNumProcs);
 		for(Process p : mainController.idToProc) {
 			p.start();
