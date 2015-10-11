@@ -39,6 +39,7 @@ public class Process extends Thread {
 	private Long time;
 	private String command;
 	private String logName;
+	private String upLogName;
 	private BufferedWriter logWrite;
 	private BufferedWriter upLogWrite;
 	private Boolean inRecovery;
@@ -72,8 +73,10 @@ public class Process extends Thread {
 			waitingOn[i] = true;
 		}
 		logName = "log_p" + this.id + ".txt";
+		upLogName = "upLog_p" + this.id + ".txt";
 		inRecovery = false;
 		logWrite = new BufferedWriter(new FileWriter(logName, true));
+		upLogWrite = new BufferedWriter(new FileWriter(upLogName, true));
 		File f = new File(logName);
 		if (f.exists()) {
 			recover();
@@ -238,6 +241,14 @@ public class Process extends Thread {
 							}
 						}
 					}
+				}
+				// log up set
+				try {
+					upLogWrite.write(Arrays.toString(livingProcs));
+					upLogWrite.newLine();
+				} catch (IOException e1) {
+					// TODO Auto-generated catch block
+					e1.printStackTrace();
 				}
 			}
 		}
@@ -699,6 +710,8 @@ public class Process extends Thread {
 			network.shutdown();
 			logWrite.flush();
 			logWrite.close();
+			upLogWrite.flush();
+			upLogWrite.close();
 			System.out.println("die " + this.id);
 //			BufferedReader logRead = new BufferedReader(new FileReader(logName));
 //			String line;
