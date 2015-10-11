@@ -366,7 +366,9 @@ public class Process extends Thread {
 		int transNum = Integer.parseInt(message.split(":")[2]);
 		int sender = getSender(message);
 		if(currentCoord < sender) {
-			livingProcs[currentCoord] = false;
+			for(int i = 0; i < sender; i++) {
+				livingProcs[i] = false;
+			}
 			currentCoord = sender;
 		}
 		else if(currentCoord == sender) {
@@ -697,6 +699,14 @@ public class Process extends Thread {
 		}
 	}
 	
+	private Boolean[] intersect(Boolean[] arr1, Boolean[] arr2) {
+		Boolean[] result = new Boolean[arr1.length];
+		for(int i = 0; i < arr1.length; i++) {
+			result[i] = arr1[i] & arr2[i];
+		}
+		return result;
+	}
+	
 	private boolean amWaiting() {
 		boolean resp = false;
 		for(int i = 0; i < numProcs; i++) {
@@ -726,6 +736,7 @@ public class Process extends Thread {
 	
 	public void recover() throws IOException {
 		BufferedReader logRead = new BufferedReader(new FileReader(logName));
+		BufferedReader upLogRead = new BufferedReader(new FileReader(upLogName));
 		inRecovery = true;
 		Boolean waiting = false;
 		String line;
