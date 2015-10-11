@@ -122,4 +122,4 @@ partialKill(4,1)
 revive(1)
 revive(2)
 revive(3)
-revive(4
+revive(4)
